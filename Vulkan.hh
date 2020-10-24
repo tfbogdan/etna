@@ -38,14 +38,19 @@ namespace wkt {
         void initCommandBuffer();
         void initSwapchain();
         void initDepthBuffer();
-        void initUniformBuffer();
+        void initCubeUniformBuffer();
+        void initGridUniformBuffer();
         void initPipelineLayout();
-        void initDescriptorSet();
+        void initDescriptorPool();
+        void initCubeDescriptorSet();
+        void intiGridDescriptorSet();
         void initRenderPass();
         void initShaders();
         void initFramebuffers();
-        void initVertexBuffers();
-        void initPipeline();
+        void initCubeVertexBuffers();
+        void initGridVertexBuffers();
+        void initCubePipeline();
+        void initGridPipeline();
 
         void beginRecordCommandBuffer();
         void beginRecordCommandBuffer(int);
@@ -134,20 +139,27 @@ namespace wkt {
             glm::vec4 solid_color;
         } world;
 
-        struct {
+        struct UniformInfo {
             vk::UniqueDeviceMemory memory;
             vk::DescriptorBufferInfo bufferInfo;
             vk::UniqueBuffer buffer;
-        } uniform;
+        };
+        UniformInfo cubeUniform;
+        UniformInfo gridUniform;
 
         vk::UniqueDescriptorSetLayout layoutDescriptor;
         vk::UniquePipelineLayout pipelineLayout;
-        vk::UniqueDescriptorPool descriptorPool;
-        std::vector<vk::UniqueDescriptorSet> descriptorSets;
+        vk::UniqueDescriptorPool cubeDescriptorPool;
+        vk::UniqueDescriptorPool gridDescriptorPool;
+        std::vector<vk::UniqueDescriptorSet> cubeDscriptorSets;
+        std::vector<vk::UniqueDescriptorSet> gridDescriptorSets;
         vk::UniqueShaderModule vertexShader;
         vk::UniqueShaderModule fragmentShader;
-        vk::UniquePipeline pipeline;
+        vk::UniquePipeline cubePipeline;
 
+        vk::UniqueBuffer wlBuffer;
+        vk::UniqueDeviceMemory wlMemory;
+        vk::UniquePipeline wlPipeline;
 
         vk::UniqueRenderPass renderPass;
 

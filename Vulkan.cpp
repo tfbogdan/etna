@@ -76,19 +76,23 @@ void wkt::Vulkan::initialize() {
     beginRecordCommandBuffer();
 
     spdlog::debug("initUniformBuffer");
-    initUniformBuffer();
+    initCubeUniformBuffer();
+    initGridUniformBuffer();
 
     spdlog::debug("initPipelineLayout");
     initPipelineLayout();
 
     spdlog::debug("initDescriptorSet");
-    initDescriptorSet();
+    initDescriptorPool();
+    initCubeDescriptorSet();
+    intiGridDescriptorSet();
 
     spdlog::debug("initShaders");
     initShaders();
 
     spdlog::debug("initVertexBuffers");
-    initVertexBuffers();
+    initCubeVertexBuffers();
+    initGridVertexBuffers();
 
     recreateSwapChain();
 
@@ -106,14 +110,10 @@ void wkt::Vulkan::initInput() {
     libinput_udev_assign_seat(li, "seat0");
 }
 
-
-
-
 VkBool32 vulkanDebugCallback(   VkDebugUtilsMessageSeverityFlagBitsEXT           messageSeverity,
                                 VkDebugUtilsMessageTypeFlagsEXT                  /*messageTypes*/,
                                 const VkDebugUtilsMessengerCallbackDataEXT*      pCallbackData,
                                 void*                                            /*pUserData*/) {
-
     try {
         switch(messageSeverity) {
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
@@ -193,7 +193,8 @@ void wkt::Vulkan::recreateSwapChain() {
     initDepthBuffer();
     initRenderPass();
     initFramebuffers();
-    initPipeline();
+    initCubePipeline();
+    initGridPipeline();
 }
 
 bool wkt::Vulkan::memory_type_from_properties(uint32_t typeBits, vk::MemoryPropertyFlags requirements_mask, uint32_t *typeIndex) {
@@ -555,7 +556,7 @@ void wkt::Vulkan::initDepthBuffer() {
     resolveBuffer.imageView = device->createImageViewUnique(resolveViewCreateInfo);
 }
 
-void wkt::Vulkan::initUniformBuffer() {
+void wkt::Vulkan::initCubeUniformBuffer() {
     vk::BufferCreateInfo bufferCreateInfo(
                 vk::BufferCreateFlags(),
                 sizeof(world.MVP) + sizeof(world.solid_color),
@@ -563,26 +564,47 @@ void wkt::Vulkan::initUniformBuffer() {
                 vk::SharingMode::eExclusive,
                 0, nullptr
                 );
-    uniform.buffer = device->createBufferUnique(bufferCreateInfo);
-    vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*uniform.buffer);
+    cubeUniform.buffer = device->createBufferUnique(bufferCreateInfo);
+    vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*cubeUniform.buffer);
     vk::MemoryAllocateInfo allocInfo(
                 memoryRequirements.size
                 );
     if (!memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, &allocInfo.memoryTypeIndex)) throw std::runtime_error("");
-    uniform.memory = device->allocateMemoryUnique(allocInfo);
-    device->bindBufferMemory(*uniform.buffer, *uniform.memory, 0);
+    cubeUniform.memory = device->allocateMemoryUnique(allocInfo);
+    device->bindBufferMemory(*cubeUniform.buffer, *cubeUniform.memory, 0);
 
-    updateUniformBuffer();
+    cubeUniform.bufferInfo.buffer = *cubeUniform.buffer;
+    cubeUniform.bufferInfo.offset = 0;
+    cubeUniform.bufferInfo.range = sizeof(world.MVP) + sizeof(world.solid_color);
+}
 
-    uniform.bufferInfo.buffer = *uniform.buffer;
-    uniform.bufferInfo.offset = 0;
-    uniform.bufferInfo.range = sizeof(world.MVP) + sizeof(world.solid_color);
+void wkt::Vulkan::initGridUniformBuffer() {
+    vk::BufferCreateInfo bufferCreateInfo(
+                vk::BufferCreateFlags(),
+                sizeof(world.MVP) + sizeof(world.solid_color),
+                vk::BufferUsageFlagBits::eUniformBuffer,
+                vk::SharingMode::eExclusive,
+                0, nullptr
+                );
+
+    gridUniform.buffer = device->createBufferUnique(bufferCreateInfo);
+    vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*gridUniform.buffer);
+    vk::MemoryAllocateInfo allocInfo(
+                memoryRequirements.size
+                );
+    if (!memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, &allocInfo.memoryTypeIndex)) throw std::runtime_error("");
+    gridUniform.memory = device->allocateMemoryUnique(allocInfo);
+    device->bindBufferMemory(*gridUniform.buffer, *gridUniform.memory, 0);
+
+    gridUniform.bufferInfo.buffer = *gridUniform.buffer;
+    gridUniform.bufferInfo.offset = 0;
+    gridUniform.bufferInfo.range = sizeof(world.MVP) + sizeof(world.solid_color);
 }
 
 void wkt::Vulkan::updateUniformBuffer() {
-    world.P = glm::perspective(glm::radians(90.f), surfaceCharacteristics.capabilities.currentExtent.width * 1.f / surfaceCharacteristics.capabilities.currentExtent.height, .1f, 100.f);
+    world.P = glm::perspective(glm::radians(110.f), surfaceCharacteristics.capabilities.currentExtent.width * 1.f / surfaceCharacteristics.capabilities.currentExtent.height, .01f, 10000.f);
     world.V = glm::lookAt(
-                glm::vec3(-5, 3, -5),
+                glm::vec3(0, 0, -5),
                 glm::vec3(0, 0, 0),
                 glm::vec3(0, 1, 0)
                 );
@@ -591,15 +613,21 @@ void wkt::Vulkan::updateUniformBuffer() {
     world.M = glm::rotate(world.M, mesh.xRot, glm::vec3(1.f, 0.f, 0.f));
     world.M = glm::rotate(world.M, mesh.yRot, glm::vec3(0.f, 1.f, 0.f));
     world.M = glm::rotate(world.M, mesh.zRot, glm::vec3(0.f, 0.f, 1.f));
-//    world.P[1][1] *= -1;
 
     world.MVP = world.P * world.V * world.M;
     world.solid_color = glm::vec4(1.f, 0.f, 1.f, 1.f);
 
-    void *pBuffData = device->mapMemory(*uniform.memory, 0, sizeof(world.MVP), vk::MemoryMapFlags());
+    const auto gridMVP = world.P * world.V * glm::mat4(1.f);
+
+    void *pBuffData = device->mapMemory(*cubeUniform.memory, 0, sizeof(world.MVP), vk::MemoryMapFlags());
     memcpy(pBuffData, &world.MVP, sizeof(world.MVP));
     memcpy(((uint8_t*)pBuffData) + sizeof(world.MVP), &world.solid_color, sizeof(world.solid_color));
-    device->unmapMemory(*uniform.memory);
+    device->unmapMemory(*cubeUniform.memory);
+
+    pBuffData = device->mapMemory(*gridUniform.memory, 0, sizeof(gridMVP), vk::MemoryMapFlags());
+    memcpy(pBuffData, &gridMVP, sizeof(gridMVP));
+    memcpy(((uint8_t*)pBuffData) + sizeof(gridMVP), &world.solid_color, sizeof(world.solid_color));
+    device->unmapMemory(*gridUniform.memory);
 }
 
 void wkt::Vulkan::initPipelineLayout() {
@@ -624,30 +652,55 @@ void wkt::Vulkan::initPipelineLayout() {
     pipelineLayout = device->createPipelineLayoutUnique(pipelineLayoutCreateInfo);
 }
 
-void wkt::Vulkan::initDescriptorSet() {
-    vk::DescriptorPoolSize descriptorPoolSize(vk::DescriptorType::eUniformBuffer, 1);
+void wkt::Vulkan::initDescriptorPool() {
+    const std::array descPoolSizes = {
+        vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 1)
+    };
+    ;
     vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo(
                 vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet,
-                1, 1, &descriptorPoolSize
+                1, descPoolSizes.size(), descPoolSizes.data()
                 );
 
-    descriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
+    cubeDescriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
+    gridDescriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
+}
 
+void wkt::Vulkan::initCubeDescriptorSet() {
     vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(
-                *descriptorPool, 1, &*layoutDescriptor
+                *cubeDescriptorPool, 1, &*layoutDescriptor
                 );
 
-    descriptorSets = device->allocateDescriptorSetsUnique(descriptorSetAllocateInfo);
+    cubeDscriptorSets = device->allocateDescriptorSetsUnique(descriptorSetAllocateInfo);
 
     vk::WriteDescriptorSet writes(
-                *descriptorSets.front(),
+                *cubeDscriptorSets.front(),
                 0, 0,
                 1, vk::DescriptorType::eUniformBuffer,
                 nullptr,
-                &uniform.bufferInfo,
+                &cubeUniform.bufferInfo,
                 nullptr
                 );
     device->updateDescriptorSets(1, &writes, 0, nullptr);
+}
+
+void wkt::Vulkan::intiGridDescriptorSet() {
+    vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(
+                *gridDescriptorPool, 1, &*layoutDescriptor
+                );
+
+    gridDescriptorSets = device->allocateDescriptorSetsUnique(descriptorSetAllocateInfo);
+
+    vk::WriteDescriptorSet writes(
+                *gridDescriptorSets.front(),
+                0, 0,
+                1, vk::DescriptorType::eUniformBuffer,
+                nullptr,
+                &gridUniform.bufferInfo,
+                nullptr
+                );
+    device->updateDescriptorSets(1, &writes, 0, nullptr);
+
 }
 
 void wkt::Vulkan::initRenderPass() {
@@ -723,52 +776,67 @@ struct Vertex {
     float r, g, b, a;              // Color
 };
 #define XYZ1(_x_, _y_, _z_) (_x_), (_y_), (_z_), 1.f
-static const Vertex g_vb_solid_face_colors_Data[] = {
+constexpr std::array g_vb_solid_face_colors_Data {
     // red face
-    { XYZ1(-1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    { XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
-    { XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    { XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    { XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
-    { XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+    Vertex{ XYZ1(-1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+    Vertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
     // green face
-    { XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    { XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    { XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
-    { XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
-    { XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    { XYZ1(1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+    Vertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
     // blue face
-    { XYZ1(-1, 1, 1), XYZ1(0.f, 0.f, 1.f) },
-    { XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
-    { XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
-    { XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
-    { XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
-    { XYZ1(-1, -1, -1), XYZ1(0.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, 1, 1), XYZ1(0.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 0.f, 1.f) },
     // yellow face
-    { XYZ1(1, 1, 1), XYZ1(1.f, 1.f, 0.f) },
-    { XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
-    { XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
-    { XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
-    { XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
-    { XYZ1(1, -1, -1), XYZ1(1.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, 1, 1), XYZ1(1.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
+    Vertex{ XYZ1(1, -1, -1), XYZ1(1.f, 1.f, 0.f) },
     // magenta face
-    { XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    { XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    { XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
-    { XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
-    { XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    { XYZ1(-1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+    Vertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+    Vertex{ XYZ1(-1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
     // cyan face
-    { XYZ1(1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    { XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
-    { XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    { XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    { XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
-    { XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+    Vertex{ XYZ1(1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+    Vertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
 };
 
-void wkt::Vulkan::initVertexBuffers() {
+constexpr std::array g_vb_grid_lines {
+    // Origin X axis, red
+    Vertex{ XYZ1(1000000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
+    Vertex{ XYZ1(-10000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
+
+    // Origin Y axis, green
+    Vertex{ XYZ1(0, 1000000, 0), XYZ1(0.f, 1.f, 0.f) },
+    Vertex{ XYZ1(0, -1000000, 0), XYZ1(0.f, 1.f, 0.f) },
+
+    // Origin Y axis, blue
+    Vertex{ XYZ1(0, 0, 1000000), XYZ1(0.f, 0.f, 1.f) },
+    Vertex{ XYZ1(0, 0, -1000000), XYZ1(0.f, 0.f, 1.f) }
+
+};
+
+void wkt::Vulkan::initCubeVertexBuffers() {
     vk::BufferCreateInfo bufferCreateInfo(
                 vk::BufferCreateFlags(),
                 sizeof(g_vb_solid_face_colors_Data),
@@ -788,17 +856,42 @@ void wkt::Vulkan::initVertexBuffers() {
     mesh.vertexMemory = device->allocateMemoryUnique(memoryAllocateInfo);
 
     void *vMem = device->mapMemory(*mesh.vertexMemory, 0, memoryRequirements.size);
-    memcpy(vMem, g_vb_solid_face_colors_Data, sizeof(g_vb_solid_face_colors_Data));
+    memcpy(vMem, g_vb_solid_face_colors_Data.data(), sizeof(g_vb_solid_face_colors_Data));
     device->unmapMemory(*mesh.vertexMemory);
 
     device->bindBufferMemory(*mesh.vertexBuffer, *mesh.vertexMemory, 0);
 
     mesh.viBindings.binding = 0;
     mesh.viBindings.inputRate = vk::VertexInputRate::eVertex;
-    mesh.viBindings.stride = sizeof(g_vb_solid_face_colors_Data[0]);
+    mesh.viBindings.stride = sizeof(Vertex);
 
     mesh.viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32A32Sfloat, 0);
     mesh.viAttribs.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(struct Vertex, r));
+}
+
+void wkt::Vulkan::initGridVertexBuffers() {
+    vk::BufferCreateInfo bufferCreateInfo(
+                vk::BufferCreateFlags(),
+                sizeof(g_vb_grid_lines),
+                vk::BufferUsageFlagBits::eVertexBuffer,
+                vk::SharingMode::eExclusive,
+                0, nullptr
+                );
+    wlBuffer = device->createBufferUnique(bufferCreateInfo);
+
+    vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*wlBuffer);
+    vk::MemoryAllocateInfo memoryAllocateInfo(
+                memoryRequirements.size
+                );
+
+    if (!memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, &memoryAllocateInfo.memoryTypeIndex)) throw std::runtime_error("");
+
+    wlMemory = device->allocateMemoryUnique(memoryAllocateInfo);
+
+    void *vMem = device->mapMemory(*wlMemory, 0, memoryRequirements.size);
+    memcpy(vMem, g_vb_grid_lines.data(), sizeof(g_vb_grid_lines));
+    device->unmapMemory(*wlMemory);
+    device->bindBufferMemory(*wlBuffer, *wlMemory, 0);
 }
 
 vk::SampleCountFlagBits wkt::Vulkan::getMaxUsableSampleCount() {
@@ -815,12 +908,7 @@ vk::SampleCountFlagBits wkt::Vulkan::getMaxUsableSampleCount() {
     return vk::SampleCountFlagBits::e1;
 }
 
-void wkt::Vulkan::initPipeline() {
-    vk::PipelineDynamicStateCreateInfo pipelineDynamicStateCreateInfo(
-                vk::PipelineDynamicStateCreateFlags(),
-                0, nullptr
-                );
-
+void wkt::Vulkan::initCubePipeline() {
     vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo(
                 vk::PipelineVertexInputStateCreateFlags(),
                 1, &mesh.viBindings,
@@ -874,6 +962,88 @@ void wkt::Vulkan::initPipeline() {
                 true, 1.f, nullptr, false, false
                 );
 
+    std::array shaderStages = {
+        vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
+        vk::ShaderStageFlagBits::eVertex, *vertexShader, "main", nullptr),
+        vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
+        vk::ShaderStageFlagBits::eFragment, *fragmentShader, "main", nullptr)
+    };
+
+    vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo(
+                vk::PipelineCreateFlags(),
+                shaderStages.size(), shaderStages.data(),
+                &pipelineVertexInputStateCreateInfo,
+                &pipelineInputAssemblyStateCreateInfo,
+                nullptr, // tesselation state
+                &pipelineViewportStateCreateInfo,
+                &pipelineRasterizationStateCreateInfo,
+                &pipelineMultisampleCreateInfo,
+                &pipelineDepthStencilCreateInfo,
+                &pipelineColorBlendStateCreateInfo,
+                nullptr, // dynamic state
+                *pipelineLayout,
+                *renderPass, 0,
+                vk::Pipeline(), 0
+                );
+
+    cubePipeline = device->createGraphicsPipelineUnique(vk::PipelineCache(), graphicsPipelineCreateInfo).value;
+}
+
+void wkt::Vulkan::initGridPipeline() {
+    vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo(
+                vk::PipelineVertexInputStateCreateFlags(),
+                1, &mesh.viBindings,
+                mesh.viAttribs.size(), mesh.viAttribs.data()
+                );
+
+    vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo(
+                vk::PipelineInputAssemblyStateCreateFlags(),
+                vk::PrimitiveTopology::eLineList, false
+                );
+
+    vk::PipelineRasterizationStateCreateInfo pipelineRasterizationStateCreateInfo(
+                vk::PipelineRasterizationStateCreateFlags(),
+                false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,
+                false, 0, 0, 0, 1.f
+                );
+
+    vk::PipelineColorBlendAttachmentState pipelineColorBlendAttachmentState(
+                false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd, vk::ColorComponentFlags(0xfu)
+                );
+
+    vk::PipelineColorBlendStateCreateInfo pipelineColorBlendStateCreateInfo(
+                vk::PipelineColorBlendStateCreateFlags(),
+                false, vk::LogicOp::eNoOp, 1, &pipelineColorBlendAttachmentState,
+                {1.f, 1.f, 1.f, 1.f}
+                );
+
+    vk::Viewport viewport(
+                0.f, 0.f,
+                surfaceCharacteristics.capabilities.currentExtent.width * 1.f,
+                surfaceCharacteristics.capabilities.currentExtent.height * 1.f,
+                0.f, 0.f
+                );
+
+    vk::Rect2D scissor(vk::Offset2D(0, 0), surfaceCharacteristics.capabilities.currentExtent);
+
+    vk::PipelineViewportStateCreateInfo pipelineViewportStateCreateInfo(
+                vk::PipelineViewportStateCreateFlags(),
+                1, &viewport, 1, &scissor
+                );
+
+    vk::PipelineDepthStencilStateCreateInfo pipelineDepthStencilCreateInfo(
+                vk::PipelineDepthStencilStateCreateFlags(),
+                true, true, vk::CompareOp::eLessOrEqual, false, false,
+                vk::StencilOpState(vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways, 0, 0, 0),
+                vk::StencilOpState(vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::StencilOp::eKeep, vk::CompareOp::eAlways, 0, 0, 0),
+                0, 0
+                );
+
+    vk::PipelineMultisampleStateCreateInfo pipelineMultisampleCreateInfo(
+                vk::PipelineMultisampleStateCreateFlags(),
+                getMaxUsableSampleCount(),
+                true, 1.f, nullptr, false, false
+                );
 
     std::array shaderStages = {
         vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
@@ -887,19 +1057,19 @@ void wkt::Vulkan::initPipeline() {
                 shaderStages.size(), shaderStages.data(),
                 &pipelineVertexInputStateCreateInfo,
                 &pipelineInputAssemblyStateCreateInfo,
-                nullptr,
+                nullptr, // tesselation state
                 &pipelineViewportStateCreateInfo,
                 &pipelineRasterizationStateCreateInfo,
                 &pipelineMultisampleCreateInfo,
                 &pipelineDepthStencilCreateInfo,
                 &pipelineColorBlendStateCreateInfo,
-                &pipelineDynamicStateCreateInfo,
+                nullptr, // dynamic state
                 *pipelineLayout,
                 *renderPass, 0,
                 vk::Pipeline(), 0
                 );
 
-    pipeline = device->createGraphicsPipelineUnique(vk::PipelineCache(), graphicsPipelineCreateInfo).value;
+    wlPipeline = device->createGraphicsPipelineUnique(vk::PipelineCache(), graphicsPipelineCreateInfo).value;
 }
 
 void wkt::Vulkan::beginRecordCommandBuffer() {
@@ -924,13 +1094,10 @@ void wkt::Vulkan::submitCommandBuffer() {
                 0, nullptr, &pipelineStageFlags, 1, &*commandBuffer, 0, nullptr
                 );
     queue.submit({submitInfo}, drawFence);
-
     vk::Result res;
-
     do {
         res = device->waitForFences(1, &drawFence, true, 1000000000);
     } while (res == vk::Result::eTimeout);
-
     device->destroyFence(drawFence);
 }
 
@@ -942,8 +1109,8 @@ void wkt::Vulkan::draw() {
         vk::ClearValue(vk::ClearColorValue())
     };
 
-    beginRecordCommandBuffer();
     updateUniformBuffer();
+    beginRecordCommandBuffer();
 
     vk::SemaphoreCreateInfo semaphoreCreateInfo;
     vk::UniqueSemaphore imageAcquiredSemaphore = device->createSemaphoreUnique(semaphoreCreateInfo);
@@ -960,27 +1127,25 @@ void wkt::Vulkan::draw() {
     }
 
     vk::RenderPassBeginInfo renderPassBeginInfo(*renderPass, *framebuffers[currentBuffer], vk::Rect2D(vk::Offset2D(), surfaceCharacteristics.capabilities.currentExtent), clearValues.size(), clearValues.data());
-
     spdlog::trace("Begin render pass");
     commandBuffer->beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
-    spdlog::trace("Bind pipeline");
-    commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
-
-    spdlog::trace("Bind descriptor set");
-    auto rawDescSets = vk::uniqueToRaw(descriptorSets);
-    commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, rawDescSets.size(), rawDescSets.data(), 0, nullptr);
-
     const vk::DeviceSize offset(0);
-    spdlog::trace("Bind vertex buffers");
+    const auto rawCubeDescSets = vk::uniqueToRaw(cubeDscriptorSets);
+    const auto rawGridDescSets = vk::uniqueToRaw(gridDescriptorSets);
+
+    // Rendering the grid lines
+    commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *wlPipeline);
+    commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, rawGridDescSets.size(), rawGridDescSets.data(), 0, nullptr);
+    commandBuffer->bindVertexBuffers(0, 1, &*wlBuffer, &offset);
+    commandBuffer->draw(g_vb_grid_lines.size(), 1, 0, 0);
+    // Rendering the cube
+    commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *cubePipeline);
+    commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, rawCubeDescSets.size(), rawCubeDescSets.data(), 0, nullptr);
     commandBuffer->bindVertexBuffers(0, 1, &*mesh.vertexBuffer, &offset);
+    commandBuffer->draw(g_vb_solid_face_colors_Data.size(), 1, 0, 0);
 
-    spdlog::trace("Draw");
-    commandBuffer->draw(12 * 3, 1, 0, 0);
-    spdlog::trace("End render pass");
     commandBuffer->endRenderPass();
-    spdlog::trace("endRecordCommandBuffer");
-
     endRecordCommandBuffer();
 
     vk::FenceCreateInfo fenceCreateInfo;
@@ -994,9 +1159,7 @@ void wkt::Vulkan::draw() {
     /* Queue the command buffer for execution */
 
     spdlog::trace("queue.submit");
-
     queue.submit(1, &submitInfo, *drawFence);
-
     spdlog::trace("waiting for fence");
     vk::PresentInfoKHR presentInfo(
                 0, nullptr, 1, &*swapchain, &currentBuffer
@@ -1011,4 +1174,3 @@ void wkt::Vulkan::draw() {
     queue.presentKHR(&presentInfo);
     spdlog::trace("Present: {}", res);
 }
-
