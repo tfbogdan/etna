@@ -1,13 +1,12 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(wakota LANGUAGES CXX)
+project(etna LANGUAGES CXX)
 
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(libinput REQUIRED IMPORTED_TARGET libinput)
 pkg_check_modules(libudev REQUIRED IMPORTED_TARGET libudev)
 pkg_check_modules(glfw REQUIRED IMPORTED_TARGET glfw3)
-pkg_check_modules(wayland-cursor REQUIRED IMPORTED_TARGET wayland-cursor)
 
 
 find_program(GLSLANG_VALIDATOR NAMES glslangValidator
@@ -44,7 +43,7 @@ add_executable(${PROJECT_NAME}
 compile_shader(${PROJECT_NAME} vertex_shader.vert)
 compile_shader(${PROJECT_NAME} fragment_shader.frag)
 
-target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL VK_USE_PLATFORM_XLIB_KHR)
+target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 
 target_compile_options(${PROJECT_NAME} PRIVATE
@@ -52,4 +51,4 @@ target_compile_options(${PROJECT_NAME} PRIVATE
   $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan fmt::fmt PkgConfig::libinput PkgConfig::libudev spdlog::spdlog PkgConfig::glfw PkgConfig::wayland-cursor)
+target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan fmt::fmt PkgConfig::libinput PkgConfig::libudev spdlog::spdlog PkgConfig::glfw)

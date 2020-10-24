@@ -3,14 +3,25 @@
 #include <vulkan/vulkan.hpp>
 
 #include <GLFW/glfw3.h>
-#include <glm/glm.hpp>
 
+#include <glm/glm.hpp>
 
 #include <libinput.h>
 #include <libudev.h>
 
 
 namespace wkt {
+
+    struct Camera {
+        glm::vec3 position;
+        glm::vec3 direction;
+    };
+
+    struct Model {
+        glm::vec3 position;
+        glm::vec3 rotation;
+        glm::vec3 scale;
+    };
 
     class Vulkan {
     public:
@@ -119,7 +130,6 @@ namespace wkt {
             glm::mat4x4 P;
             glm::mat4x4 V;
             glm::mat4x4 M;
-            glm::mat4x4 clip;
             glm::mat4x4 MVP;
             glm::vec4 solid_color;
         } world;
@@ -146,7 +156,7 @@ namespace wkt {
             vk::UniqueDeviceMemory vertexMemory;
             vk::VertexInputBindingDescription viBindings;
             std::vector<vk::VertexInputAttributeDescription> viAttribs;
-            float xRot, yRot, zRot;
+            float xRot = 0., yRot = 0., zRot = 0.;
         } mesh;
 
         std::vector<vk::UniqueFramebuffer> framebuffers;

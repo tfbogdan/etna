@@ -133,8 +133,7 @@ VkBool32 vulkanDebugCallback(   VkDebugUtilsMessageSeverityFlagBitsEXT          
         spdlog::error(e.what());
     } catch (...) {
         spdlog::error("Unrecognized exception");
-    }
-    return VK_FALSE;
+    }    return VK_FALSE;
 }
 
 
@@ -410,8 +409,8 @@ void wkt::Vulkan::loop_input() {
                 auto dx = libinput_event_pointer_get_dx(pointer_event);
                 auto dy = libinput_event_pointer_get_dy(pointer_event);
 
-                mesh.xRot += dx / 100.f;
-                mesh.yRot += dy / 100.f;
+                mesh.xRot += dx / 500.f;
+                mesh.yRot += dy / 500.f;
 
             } break;
             case LIBINPUT_EVENT_POINTER_BUTTON:
@@ -557,32 +556,6 @@ void wkt::Vulkan::initDepthBuffer() {
 }
 
 void wkt::Vulkan::initUniformBuffer() {
-    mesh.xRot = 0.f;
-    mesh.yRot = 0.f;
-    mesh.zRot = 0.f;
-
-    /* do the math one per demo*/
-    world.P = glm::perspective(glm::radians(45.f), (float)surfaceCharacteristics.capabilities.currentExtent.width / (float)surfaceCharacteristics.capabilities.currentExtent.height, .1f, 100.f);
-    world.V = glm::lookAt(
-                glm::vec3(-5, 3, -10),
-                glm::vec3(0, 0, 0),
-                glm::vec3(0, 1, 0)
-                );
-    world.M = glm::mat4(1.f);
-    world.M = glm::rotate(world.M, mesh.xRot, glm::vec3(1.f, 0.f, 0.f));
-    world.M = glm::rotate(world.M, mesh.yRot, glm::vec3(0.f, 1.f, 0.f));
-    world.M = glm::rotate(world.M, mesh.zRot, glm::vec3(0.f, 0.f, 1.f));
-
-    world.clip = glm::mat4(
-                1.f, 0.f, 0.f, 0.f,
-                0.f, -1.f, 0.f, 0.f,
-                0.f, 0.f, .5f, 0.f,
-                0.f, 0.f, .5f, 1.f
-                );
-
-    world.MVP = world.clip * world.P * world.V * world.M;
-    world.solid_color = glm::vec4(1.f, 0.f, 1.f, 1.f);
-
     vk::BufferCreateInfo bufferCreateInfo(
                 vk::BufferCreateFlags(),
                 sizeof(world.MVP) + sizeof(world.solid_color),
@@ -591,23 +564,15 @@ void wkt::Vulkan::initUniformBuffer() {
                 0, nullptr
                 );
     uniform.buffer = device->createBufferUnique(bufferCreateInfo);
-
-
     vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*uniform.buffer);
     vk::MemoryAllocateInfo allocInfo(
                 memoryRequirements.size
                 );
     if (!memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, &allocInfo.memoryTypeIndex)) throw std::runtime_error("");
     uniform.memory = device->allocateMemoryUnique(allocInfo);
-
-    void *pBuffData = device->mapMemory(*uniform.memory, 0, memoryRequirements.size, vk::MemoryMapFlags());
-
-    memcpy(pBuffData, &world.MVP, sizeof(world.MVP));
-    memcpy(((uint8_t*)pBuffData) + sizeof(world.MVP), &world.solid_color, sizeof(world.solid_color));
-
-    device->unmapMemory(*uniform.memory);
-
     device->bindBufferMemory(*uniform.buffer, *uniform.memory, 0);
+
+    updateUniformBuffer();
 
     uniform.bufferInfo.buffer = *uniform.buffer;
     uniform.bufferInfo.offset = 0;
@@ -615,10 +580,9 @@ void wkt::Vulkan::initUniformBuffer() {
 }
 
 void wkt::Vulkan::updateUniformBuffer() {
-    /* do the math one per demo*/
-    world.P = glm::perspective(glm::radians(45.f), surfaceCharacteristics.capabilities.currentExtent.width * 1.0f / surfaceCharacteristics.capabilities.currentExtent.height, .1f, 100.f);
+    world.P = glm::perspective(glm::radians(90.f), surfaceCharacteristics.capabilities.currentExtent.width * 1.f / surfaceCharacteristics.capabilities.currentExtent.height, .1f, 100.f);
     world.V = glm::lookAt(
-                glm::vec3(-5, 3, -10),
+                glm::vec3(-5, 3, -5),
                 glm::vec3(0, 0, 0),
                 glm::vec3(0, 1, 0)
                 );
@@ -627,19 +591,14 @@ void wkt::Vulkan::updateUniformBuffer() {
     world.M = glm::rotate(world.M, mesh.xRot, glm::vec3(1.f, 0.f, 0.f));
     world.M = glm::rotate(world.M, mesh.yRot, glm::vec3(0.f, 1.f, 0.f));
     world.M = glm::rotate(world.M, mesh.zRot, glm::vec3(0.f, 0.f, 1.f));
+//    world.P[1][1] *= -1;
 
-    world.clip = glm::mat4(
-                1.f, 0.f, 0.f, 0.f,
-                0.f, -1.f, 0.f, 0.f,
-                0.f, 0.f, .5f, 0.f,
-                0.f, 0.f, .5f, 1.f
-                );
-
-    world.MVP = world.clip * world.P * world.V * world.M;
+    world.MVP = world.P * world.V * world.M;
     world.solid_color = glm::vec4(1.f, 0.f, 1.f, 1.f);
 
     void *pBuffData = device->mapMemory(*uniform.memory, 0, sizeof(world.MVP), vk::MemoryMapFlags());
     memcpy(pBuffData, &world.MVP, sizeof(world.MVP));
+    memcpy(((uint8_t*)pBuffData) + sizeof(world.MVP), &world.solid_color, sizeof(world.solid_color));
     device->unmapMemory(*uniform.memory);
 }
 
@@ -846,12 +805,12 @@ vk::SampleCountFlagBits wkt::Vulkan::getMaxUsableSampleCount() {
     vk::PhysicalDeviceProperties props = gpu.getProperties();
 
     vk::SampleCountFlags counts = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
-    if (counts & vk::SampleCountFlagBits::e64) { return vk::SampleCountFlagBits::e64; }
-    if (counts & vk::SampleCountFlagBits::e32) { return vk::SampleCountFlagBits::e32; }
-    if (counts & vk::SampleCountFlagBits::e16) { return vk::SampleCountFlagBits::e16; }
-    if (counts & vk::SampleCountFlagBits::e8) { return vk::SampleCountFlagBits::e8; }
-    if (counts & vk::SampleCountFlagBits::e4) { return vk::SampleCountFlagBits::e4; }
-    if (counts & vk::SampleCountFlagBits::e2) { return vk::SampleCountFlagBits::e2; }
+    if (counts & vk::SampleCountFlagBits::e64)  { return vk::SampleCountFlagBits::e64;  }
+    if (counts & vk::SampleCountFlagBits::e32)  { return vk::SampleCountFlagBits::e32;  }
+    if (counts & vk::SampleCountFlagBits::e16)  { return vk::SampleCountFlagBits::e16;  }
+    if (counts & vk::SampleCountFlagBits::e8)   { return vk::SampleCountFlagBits::e8;   }
+    if (counts & vk::SampleCountFlagBits::e4)   { return vk::SampleCountFlagBits::e4;   }
+    if (counts & vk::SampleCountFlagBits::e2)   { return vk::SampleCountFlagBits::e2;   }
 
     return vk::SampleCountFlagBits::e1;
 }
@@ -889,9 +848,9 @@ void wkt::Vulkan::initPipeline() {
                 );
 
     vk::Viewport viewport(
-                0, 0,
-                (float)surfaceCharacteristics.capabilities.currentExtent.width,
-                (float)surfaceCharacteristics.capabilities.currentExtent.height,
+                0.f, 0.f,
+                surfaceCharacteristics.capabilities.currentExtent.width * 1.f,
+                surfaceCharacteristics.capabilities.currentExtent.height * 1.f,
                 0.f, 0.f
                 );
     vk::Rect2D scissor(vk::Offset2D(0, 0), surfaceCharacteristics.capabilities.currentExtent);
@@ -1023,7 +982,6 @@ void wkt::Vulkan::draw() {
     spdlog::trace("endRecordCommandBuffer");
 
     endRecordCommandBuffer();
-
 
     vk::FenceCreateInfo fenceCreateInfo;
     vk::UniqueFence drawFence = device->createFenceUnique(fenceCreateInfo);
