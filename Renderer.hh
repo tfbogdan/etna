@@ -5,36 +5,19 @@
 #include <GLFW/glfw3.h>
 
 #include <glm/glm.hpp>
-
-#include <libinput.h>
-#include <libudev.h>
+#include <imgui/imgui.h>
 
 
-namespace wkt {
+namespace etna {
 
-    struct Camera {
-        glm::vec3 position;
-        glm::vec3 direction;
-    };
-
-    struct Model {
-        glm::vec3 position;
-        glm::vec3 rotation;
-        glm::vec3 scale;
-    };
-
-    class Vulkan {
+    class Renderer {
     public:
-        ~Vulkan();
-        void initialize();
-
-        void initInput();
+        void initialize(GLFWwindow* window);
 
         void initInstance();
-        void createWindow();
 
         void initDevice();
-        void initSurface();
+        void initSurface(GLFWwindow* window);
         void initCommandBuffer();
         void initSwapchain();
         void initDepthBuffer();
@@ -45,17 +28,20 @@ namespace wkt {
         void initCubeDescriptorSet();
         void intiGridDescriptorSet();
         void initRenderPass();
+        void initGuiRenderPass();
         void initShaders();
         void initFramebuffers();
+        void initGuiFramebuffers();
         void initCubeVertexBuffers();
-        void initGridVertexBuffers();
-        void initCubePipeline();
-        void initGridPipeline();
+        void initPipeline();
 
-        void beginRecordCommandBuffer();
+        void initGui();
+
+        void buildGui();
+
         void beginRecordCommandBuffer(int);
-        void endRecordCommandBuffer();
-        void submitCommandBuffer();
+        void endRecordCommandBuffer(int);
+        void submitCommandBuffer(int);
         void draw();
 
         void loop();
@@ -63,6 +49,7 @@ namespace wkt {
 
         void disableTTY();
         void restoreTTY();
+        void recreateSwapChain();
     protected:
         static void windowResized(GLFWwindow* window, int w, int h);
 
@@ -73,7 +60,6 @@ namespace wkt {
         bool isNested() const;
 
         void cleanupSwapchainAndDependees();
-        void recreateSwapChain();
 
         vk::UniqueInstance instance;
         vk::DispatchLoaderDynamic dldi;
@@ -89,26 +75,15 @@ namespace wkt {
 
         vk::Queue queue;
         vk::UniqueSurfaceKHR wndSurface;
-
         vk::UniqueCommandPool commandPool;
-        vk::UniqueCommandBuffer commandBuffer;
 
+        std::vector<vk::UniqueCommandBuffer> commandBuffers;
 
-        // VkCommandPool cmd_pool = VK_NULL_HANDLE;
-        // VkCommandBuffer cmd_buff = VK_NULL_HANDLE;
         vk::UniqueSwapchainKHR swapchain;
         uint32_t queueFamily = 0;
 
-
-        struct {
-            vk::SurfaceCapabilitiesKHR capabilities;
-            std::vector<vk::PresentModeKHR> presentModes;
-            std::vector<vk::SurfaceFormatKHR> surfaceFormats;
-            bool has_VK_FORMAT_B8G8R8A8_UNORM = false;
-            vk::PresentModeKHR presentMode;
-        } surfaceCharacteristics;
-
-        // vk::SurfaceCapabilitiesKHR surface_characteristics;
+        vk::SurfaceCapabilitiesKHR surfaceCapabilities;
+        vk::PresentModeKHR presentMode;
 
         std::vector<vk::Image> swapchainImages;
         std::vector<vk::UniqueImageView> swapchainImageViews;
@@ -150,16 +125,11 @@ namespace wkt {
         vk::UniqueDescriptorSetLayout layoutDescriptor;
         vk::UniquePipelineLayout pipelineLayout;
         vk::UniqueDescriptorPool cubeDescriptorPool;
-        vk::UniqueDescriptorPool gridDescriptorPool;
         std::vector<vk::UniqueDescriptorSet> cubeDscriptorSets;
         std::vector<vk::UniqueDescriptorSet> gridDescriptorSets;
         vk::UniqueShaderModule vertexShader;
         vk::UniqueShaderModule fragmentShader;
         vk::UniquePipeline cubePipeline;
-
-        vk::UniqueBuffer wlBuffer;
-        vk::UniqueDeviceMemory wlMemory;
-        vk::UniquePipeline wlPipeline;
 
         vk::UniqueRenderPass renderPass;
 
@@ -168,20 +138,23 @@ namespace wkt {
             vk::UniqueDeviceMemory vertexMemory;
             vk::VertexInputBindingDescription viBindings;
             std::vector<vk::VertexInputAttributeDescription> viAttribs;
-            float xRot = 0., yRot = 0., zRot = 0.;
+            glm::vec3 rotation = {};
+            glm::vec3 pos = {};
         } mesh;
 
+        struct {
+            float fov = 110.f;
+            float zNear = 2.f;
+            float zFar = 100.f;
+
+            glm::vec3 pos = glm::vec3(0, 0, -5);
+            glm::vec3 rotation = {};
+        } camera;
+        GLFWwindow *_window = nullptr;
+
         std::vector<vk::UniqueFramebuffer> framebuffers;
-
-        // in case we're running in a graphical session
-        GLFWwindow *window = nullptr;
-
-        struct libinput *li = nullptr;
-        struct libinput_event *event = nullptr;
-        struct udev *udev = nullptr;
-
-        int tty_mode = -1;
-
+        std::vector<vk::UniqueFramebuffer> guiFramebuffers;
+        vk::UniqueRenderPass guiRenderPass;
         bool done_looping = false;
     };
 

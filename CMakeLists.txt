@@ -36,8 +36,8 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 add_executable(${PROJECT_NAME}
     main.cpp
-    Vulkan.cpp
-    Vulkan.hh
+    Renderer.cpp
+    Renderer.hh
 )
 
 compile_shader(${PROJECT_NAME} vertex_shader.vert)
@@ -52,3 +52,4 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan fmt::fmt PkgConfig::libinput PkgConfig::libudev spdlog::spdlog PkgConfig::glfw)
+add_subdirectory(imgui)
