@@ -218,8 +218,14 @@ void etna::Renderer::initDevice() {
                 );
 
     deviceInfo.pNext = &deviceFeatures;
-
+    vk::PhysicalDeviceDriverProperties driverProps;
+    vk::PhysicalDeviceProperties2 props2;
+    props2.pNext = &driverProps;
+    gpu.getProperties2(&props2);
+    auto props = gpu.getProperties();
+    spdlog::info("Using driver {} version {}", driverProps.driverName, props.driverVersion);
     device = gpu.createDeviceUnique(deviceInfo);
+
     queue = device->getQueue(queueFamily, 0);
 }
 
@@ -256,11 +262,12 @@ void etna::Renderer::initSurface(GLFWwindow* window) {
 }
 
 void etna::Renderer::initCommandBuffer() {
-    vk::CommandPoolCreateInfo cmdPoolInfo(
-                vk::CommandPoolCreateFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer),
-                queueFamily
-                );
-    commandPool = device->createCommandPoolUnique(cmdPoolInfo);
+    if (!commandPool) {
+        vk::CommandPoolCreateInfo cmdPoolInfo;
+        cmdPoolInfo.queueFamilyIndex = queueFamily;
+        cmdPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
+        commandPool = device->createCommandPoolUnique(cmdPoolInfo);
+    } 
     vk::CommandBufferAllocateInfo cmdBuffAlocInfo(
                 *commandPool, vk::CommandBufferLevel::ePrimary, 2
                 );
@@ -270,7 +277,7 @@ void etna::Renderer::initCommandBuffer() {
 void etna::Renderer::initSwapchain() {
     vk::SwapchainCreateInfoKHR swapchainInfo;
     swapchainInfo.surface               = *wndSurface;
-    swapchainInfo.minImageCount         = surfaceCapabilities.minImageCount + 1;
+    swapchainInfo.minImageCount         = surfaceCapabilities.minImageCount;
     swapchainInfo.imageFormat           = vk::Format::eB8G8R8A8Unorm;
     swapchainInfo.imageColorSpace       = vk::ColorSpaceKHR::eSrgbNonlinear;
     swapchainInfo.imageExtent           = surfaceCapabilities.currentExtent;
@@ -599,6 +606,7 @@ void etna::Renderer::initFramebuffers() {
 }
 
 void etna::Renderer::initGuiFramebuffers() {
+    guiFramebuffers.clear();
     for (uint32_t idx(0); idx < swapchainImages.size(); ++idx) {
         spdlog::trace("Creating framebuffer {}:", idx);
         std::array attachments {
@@ -904,6 +912,8 @@ void etna::Renderer::draw() {
         vk::ClearValue(vk::ClearDepthStencilValue(1.f, 0)),
         vk::ClearValue(vk::ClearColorValue())
     };
+
+    vkResetCommandPool(*device, *commandPool, 0);
 
     updateUniformBuffer();
 
