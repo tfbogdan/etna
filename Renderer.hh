@@ -144,10 +144,9 @@ namespace etna {
 
         struct {
             float fov = 110.f;
-            float zNear = 2.f;
-            float zFar = 100.f;
+            float zNear = 1.f;
 
-            glm::vec3 pos = glm::vec3(0, 0, -5);
+            glm::vec3 pos = glm::vec3(0, 0, -15);
             glm::vec3 rotation = {};
         } camera;
         GLFWwindow *_window = nullptr;

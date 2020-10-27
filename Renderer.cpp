@@ -19,6 +19,8 @@
 #include <imgui/imgui_impl_vulkan.h>
 #include <imgui/imgui_impl_glfw.h>
 
+#include <tinyobjloader/tiny_obj_loader.h>
+
 constexpr std::array instanceExtensions = {
     VK_KHR_DISPLAY_EXTENSION_NAME,
     VK_KHR_SURFACE_EXTENSION_NAME,
@@ -397,16 +399,20 @@ void etna::Renderer::initGridUniformBuffer() {
 }
 
 void etna::Renderer::updateUniformBuffer() {
-    world.P = glm::perspectiveLH(glm::radians(camera.fov), surfaceCapabilities.currentExtent.width * 1.f / surfaceCapabilities.currentExtent.height, camera.zNear, camera.zFar);
+    world.P = glm::infinitePerspectiveLH(glm::radians(camera.fov), surfaceCapabilities.currentExtent.width * 1.f / surfaceCapabilities.currentExtent.height, camera.zNear);
 
-    const auto lookAt = glm::vec3(0, 0, 0);
-    const auto upAxis = glm::vec3(0, 1, 0);
+    glm::quat qPitch    = glm::angleAxis(glm::radians(camera.rotation.x), glm::vec3(1, 0, 0));
+    glm::quat qYaw      = glm::angleAxis(glm::radians(camera.rotation.y), glm::vec3(0, 1, 0));
+    glm::quat qRoll     = glm::angleAxis(glm::radians(camera.rotation.z), glm::vec3(0,0,1));
 
-    world.V = glm::lookAtLH(
-                camera.pos,
-                lookAt,
-                camera.pos + upAxis
-                );
+    glm::quat orientation = qPitch * qYaw * qRoll;
+    orientation = glm::normalize(orientation);
+    glm::mat4 rotate = glm::mat4_cast(orientation);
+
+    glm::mat4 translate = glm::mat4(1.0f);
+    translate = glm::translate(translate, -camera.pos);
+
+    world.V = rotate * translate;
 
     world.M = glm::translate(glm::mat4(1.f), mesh.pos) * glm::eulerAngleXYZ(
                 glm::radians(mesh.rotation.x),
@@ -850,9 +856,9 @@ void etna::Renderer::buildGui() {
     ImGui::DragFloat("pos y", &mesh.pos.y, .1f);
     ImGui::DragFloat("pos z", &mesh.pos.z, .1f);
 
-    ImGui::DragFloat("rot x", &mesh.rotation.x, .1f, 0.0f, 360.0f);
-    ImGui::DragFloat("rot y", &mesh.rotation.y, .1f, 0.0f, 360.0f);
-    ImGui::DragFloat("rot z", &mesh.rotation.z, .1f, 0.0f, 360.0f);
+    ImGui::DragFloat("rot x", &mesh.rotation.x, .1f, -360.f, 360.0f);
+    ImGui::DragFloat("rot y", &mesh.rotation.y, .1f, -360.f, 360.0f);
+    ImGui::DragFloat("rot z", &mesh.rotation.z, .1f, -360.f, 360.0f);
 
     ImGui::End();
 
@@ -860,16 +866,16 @@ void etna::Renderer::buildGui() {
 
     ImGui::DragFloat("fov", &camera.fov, .1f, 20.f, 180.f);
     ImGui::DragFloat("nearPlane", &camera.zNear, .1f, 1.f, 100.f);
-    ImGui::DragFloat("farPlane", &camera.zFar, .1f, 5.f, 1000.f);
 
     ImGui::DragFloat("pos x", &camera.pos.x, .1f);
     ImGui::DragFloat("pos y", &camera.pos.y, .1f);
     ImGui::DragFloat("pos z", &camera.pos.z, .1f);
 
-    ImGui::DragFloat("x Rotation", &camera.rotation.x, .1f, 0.0f, 360.0f);
-    ImGui::DragFloat("y Rotation", &camera.rotation.y, .1f, 0.0f, 360.0f);
-    ImGui::DragFloat("z Rotation", &camera.rotation.z, .1f, 0.0f, 360.0f);
+    ImGui::DragFloat("yaw",   &camera.rotation.x, .1f, -360.f, 360.0f);
+    ImGui::DragFloat("pitch", &camera.rotation.y, .1f, -360.f, 360.0f);
+    ImGui::DragFloat("roll",  &camera.rotation.z, .1f, -360.f, 360.0f);
     ImGui::End();
+
 
     ImGui::Begin("System information");
     ImGui::Text("current framebuffer size: %dx%d", w, h);
@@ -878,6 +884,8 @@ void etna::Renderer::buildGui() {
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
     ImGui::End();
+    ImGui::ShowDemoWindow();
+
     ImGui::Render();
 }
 

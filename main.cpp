@@ -85,8 +85,7 @@ void directInputLoop() {
                 auto keyEv = libinput_event_get_keyboard_event(event);
                 auto key = libinput_event_keyboard_get_key(keyEv);
                 auto state = libinput_event_keyboard_get_key_state(keyEv);
-                spdlog::info("Got a key event with keycode: {} in state {}", key, state);
-                //                    if (key == )
+                spdlog::debug("Got a key event with keycode: {} in state {}", key, state);
             } break;
             default:
                 break;

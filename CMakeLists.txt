@@ -54,3 +54,4 @@ target_compile_options(${PROJECT_NAME} PRIVATE
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan fmt::fmt PkgConfig::libinput PkgConfig::libudev spdlog::spdlog PkgConfig::glfw)
 add_subdirectory(imgui)
 add_subdirectory(tinyobjloader)
+add_subdirectory(VulkanMemoryAllocator)
