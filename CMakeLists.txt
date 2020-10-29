@@ -38,6 +38,8 @@ add_executable(${PROJECT_NAME}
     main.cpp
     Renderer.cpp
     Renderer.hh
+    Pipeline.hh
+    Pipeline.cc
 )
 
 compile_shader(${PROJECT_NAME} vertex_shader.vert)
@@ -46,12 +48,10 @@ compile_shader(${PROJECT_NAME} fragment_shader.frag)
 target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 
-target_compile_options(${PROJECT_NAME} PRIVATE
-  $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
-  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
-)
+#target_compile_options(${PROJECT_NAME} PRIVATE
+#  $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+#  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
+#)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan fmt::fmt PkgConfig::libinput PkgConfig::libudev spdlog::spdlog PkgConfig::glfw)
-add_subdirectory(imgui)
-add_subdirectory(tinyobjloader)
-add_subdirectory(VulkanMemoryAllocator)
+add_subdirectory(dependencies)

@@ -7,11 +7,34 @@
 #include <glm/glm.hpp>
 #include <imgui/imgui.h>
 
+#include <VulkanMemoryAllocator/vk_mem_alloc.h>
 
 namespace etna {
 
+    struct UniformBuffer {
+        glm::mat4 mvp;
+    };
+
+    struct SceneObject {
+        std::string name;
+        glm::vec3 position;
+        glm::vec3 rotation;
+        glm::vec3 scale;
+
+        bool visible = false;
+        vk::Buffer vertexBuffer = {};
+        vk::PrimitiveTopology topology = vk::PrimitiveTopology::eTriangleList;
+
+        int bufferStart = 0;
+        int numVerts = 0;
+
+        uint32_t uniformBufferOffset = 0;
+    };
+
     class Renderer {
     public:
+        ~Renderer();
+
         void initialize(GLFWwindow* window);
 
         void initInstance();
@@ -23,10 +46,13 @@ namespace etna {
         void initDepthBuffer();
         void initCubeUniformBuffer();
         void initGridUniformBuffer();
+        void initSharedUniformBuffer();
         void initPipelineLayout();
         void initDescriptorPool();
         void initCubeDescriptorSet();
         void intiGridDescriptorSet();
+        void initSharedDescriptorSet();
+
         void initRenderPass();
         void initGuiRenderPass();
         void initShaders();
@@ -71,6 +97,7 @@ namespace etna {
         vk::PhysicalDevice gpu;
 
         void updateUniformBuffer();
+        void updateUniformBuffers();
         bool init();
 
         vk::Queue queue;
@@ -102,6 +129,8 @@ namespace etna {
             vk::UniqueDeviceMemory memory;
         } resolveBuffer;
 
+        std::vector<SceneObject> sceneObjects;
+
         vk::PhysicalDeviceMemoryProperties memoryProperties;
 
         bool memory_type_from_properties(uint32_t typeBits, vk::MemoryPropertyFlags requirements_mask, uint32_t *typeIndex);
@@ -119,19 +148,26 @@ namespace etna {
             vk::DescriptorBufferInfo bufferInfo;
             vk::UniqueBuffer buffer;
         };
+
         UniformInfo cubeUniform;
         UniformInfo gridUniform;
 
-        vk::UniqueDescriptorSetLayout layoutDescriptor;
+        vk::UniqueBuffer sharedUniformBuffer;
+        VmaAllocation sharedUniformAllocation = nullptr;
+        vk::DescriptorBufferInfo sharedBufferInfo;
+        vk::DescriptorSet sharedDescriptorSet;
+
+        vk::UniqueDescriptorSetLayout descSetLayout;
         vk::UniquePipelineLayout pipelineLayout;
         vk::UniqueDescriptorPool cubeDescriptorPool;
-        std::vector<vk::UniqueDescriptorSet> cubeDscriptorSets;
-        std::vector<vk::UniqueDescriptorSet> gridDescriptorSets;
+        std::vector<vk::DescriptorSet> cubeDscriptorSets;
+        std::vector<vk::DescriptorSet> gridDescriptorSets;
         vk::UniqueShaderModule vertexShader;
         vk::UniqueShaderModule fragmentShader;
         vk::UniquePipeline cubePipeline;
 
         vk::UniqueRenderPass renderPass;
+        VmaAllocator allocator = nullptr;
 
         struct {
             vk::UniqueBuffer vertexBuffer;
@@ -145,8 +181,9 @@ namespace etna {
         struct {
             float fov = 110.f;
             float zNear = 1.f;
+            float zFar = 1000.f;
 
-            glm::vec3 pos = glm::vec3(0, 0, -15);
+            glm::vec4 pos = glm::vec4(0, 0, -15, 1);
             glm::vec3 rotation = {};
         } camera;
         GLFWwindow *_window = nullptr;
