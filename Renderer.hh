@@ -2,8 +2,6 @@
 
 #include <vulkan/vulkan.hpp>
 
-#include <GLFW/glfw3.h>
-
 #include <glm/glm.hpp>
 #include <imgui/imgui.h>
 
@@ -34,10 +32,9 @@ namespace etna {
     class Renderer {
     public:
         ~Renderer();
+        Renderer() = default;
 
         void initialize(GLFWwindow* window);
-
-        void initInstance();
 
         void initDevice();
         void initSurface(GLFWwindow* window);
@@ -70,22 +67,13 @@ namespace etna {
         void submitCommandBuffer(int);
         void draw();
 
-        void loop();
-        void loop_input();
-
-        void disableTTY();
-        void restoreTTY();
         void recreateSwapChain();
     protected:
-        static void windowResized(GLFWwindow* window, int w, int h);
-
         vk::SampleCountFlagBits getMaxUsableSampleCount();
 
         void createInstance();
 
         bool isNested() const;
-
-        void cleanupSwapchainAndDependees();
 
         vk::UniqueInstance instance;
         vk::DispatchLoaderDynamic dldi;
@@ -98,7 +86,6 @@ namespace etna {
 
         void updateUniformBuffer();
         void updateUniformBuffers();
-        bool init();
 
         vk::Queue queue;
         vk::UniqueSurfaceKHR wndSurface;

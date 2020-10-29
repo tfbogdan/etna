@@ -2,11 +2,14 @@ cmake_minimum_required(VERSION 3.14)
 
 project(etna LANGUAGES CXX)
 
-find_package(PkgConfig REQUIRED)
 
-pkg_check_modules(libinput REQUIRED IMPORTED_TARGET libinput)
-pkg_check_modules(libudev REQUIRED IMPORTED_TARGET libudev)
-pkg_check_modules(glfw REQUIRED IMPORTED_TARGET glfw3)
+if(UNIX AND NOT APPLE)
+    find_package(PkgConfig REQUIRED)
+
+    pkg_check_modules(libinput REQUIRED IMPORTED_TARGET libinput)
+    pkg_check_modules(libudev REQUIRED IMPORTED_TARGET libudev)
+    pkg_check_modules(glfw REQUIRED IMPORTED_TARGET glfw3)
+endif()
 
 
 find_program(GLSLANG_VALIDATOR NAMES glslangValidator
@@ -28,9 +31,6 @@ function(compile_shader target shader_file)
 endfunction()
 
 find_package(Vulkan REQUIRED)
-find_package(fmt REQUIRED)
-find_package(spdlog REQUIRED)
-find_package(glm REQUIRED)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -42,16 +42,32 @@ add_executable(${PROJECT_NAME}
     Pipeline.cc
 )
 
+add_subdirectory(dependencies)
+
 compile_shader(${PROJECT_NAME} vertex_shader.vert)
 compile_shader(${PROJECT_NAME} fragment_shader.frag)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED)
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
 
-#target_compile_options(${PROJECT_NAME} PRIVATE
-#  $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
-#  $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
-#)
+target_compile_options(${PROJECT_NAME} PRIVATE
+ $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+ $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
+)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Vulkan::Vulkan fmt::fmt PkgConfig::libinput PkgConfig::libudev spdlog::spdlog PkgConfig::glfw)
-add_subdirectory(dependencies)
+target_link_libraries(${PROJECT_NAME} 
+    PRIVATE 
+    Vulkan::Vulkan 
+    fmt::fmt 
+    spdlog::spdlog 
+    glm::glm
+    glfw
+)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} 
+        PRIVATE 
+        PkgConfig::libinput 
+        PkgConfig::libudev 
+    )
+endif()

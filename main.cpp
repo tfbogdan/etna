@@ -1,14 +1,22 @@
 // #include <QGuiApplication>
 // #include <QQmlApplicationEngine>
+#include <GLFW/glfw3.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+
+#include <Renderer.hh>
+
 #include <iostream>
 #include <vector>
 #include <thread>
 
-#include <Renderer.hh>
 
-#include <spdlog/spdlog.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 
+
+
+bool doneLooping = false;
+
+#ifdef __linux__ 
 #include <libinput.h>
 #include <libudev.h>
 
@@ -21,16 +29,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-void glfwKeyCB(GLFWwindow* window, int key, [[maybe_unused]] int scancode, int action, [[maybe_unused]] int mods) {
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
-    }
-}
-
-void glfwWindowResizedCB(GLFWwindow* window, int /*w*/, int /*h*/) {
-    auto instance = static_cast<etna::Renderer*>(glfwGetWindowUserPointer(window));
-    instance->recreateSwapChain();
-}
 
 int open_restricted(const char *path, int flags, void */*user_data*/) {
     int fd = open(path, flags);
@@ -56,7 +54,6 @@ void initInput() {
     libinput_udev_assign_seat(li, "seat0");
 }
 
-bool doneLooping = false;
 
 void directInputLoop() {
     while(!doneLooping) {
@@ -95,7 +92,18 @@ void directInputLoop() {
         }
     }
 }
+#endif // linux
 
+void glfwKeyCB(GLFWwindow* window, int key, [[maybe_unused]] int scancode, int action, [[maybe_unused]] int mods) {
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
+}
+
+void glfwWindowResizedCB(GLFWwindow* window, int /*w*/, int /*h*/) {
+    auto instance = static_cast<etna::Renderer*>(glfwGetWindowUserPointer(window));
+    instance->recreateSwapChain();
+}
 
 int main(int, char**) {
     etna::Renderer vulkan;
@@ -116,11 +124,12 @@ int main(int, char**) {
     glfwSetWindowSizeCallback(window, &glfwWindowResizedCB);
 
     vulkan.initialize(window);
+#ifdef __linux__ 
     initInput();
+    std::thread input_thread(directInputLoop);
+#endif // linux
 
     glfwShowWindow(window);
-
-    std::thread input_thread(directInputLoop);
 
     try {
         while(!doneLooping) {
@@ -136,18 +145,20 @@ int main(int, char**) {
         spdlog::critical(e.what());
     }
 
+#ifdef __linux__ 
     input_thread.join();
-
-    if (window) {
-        glfwDestroyWindow(window);
-    }
-
     if (li) {
         libinput_unref(li);
     }
 
     if (udev) {
         udev_unref(udev);
+    }
+
+#endif // linux
+
+    if (window) {
+        glfwDestroyWindow(window);
     }
 
     return 0;
