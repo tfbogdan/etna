@@ -142,8 +142,7 @@ void etna::Renderer::createInstance() {
 
     debugUtilsMessenger = instance->createDebugUtilsMessengerEXTUnique(debugUtilsMessengerCreateInfo, nullptr, dldi);
     gpus = instance->enumeratePhysicalDevices();
-    memoryProperties = gpus[0].getMemoryProperties();
-    // TDO: Pick a suitable candidate when more GPUs are available
+    // TDO: determine a suitable candidate when more than 1 GPU is available
     gpu = gpus[0];
 }
 
@@ -647,7 +646,7 @@ void etna::Renderer::initCubeVertexBuffers() {
                 vk::SharingMode::eExclusive,
                 0, nullptr
                 );
-    mesh.vertexBuffer = device->createBufferUnique(bufferCreateInfo);
+    vertexBuffer = device->createBufferUnique(bufferCreateInfo);
     VmaAllocationCreateInfo allocCreateInfo = {};
     allocCreateInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
     VkBuffer stagingBuffer;
@@ -659,24 +658,24 @@ void etna::Renderer::initCubeVertexBuffers() {
     memcpy(vMem, g_vb_solid_face_colors_Data.data(), sizeof(g_vb_solid_face_colors_Data));
     memcpy(&vMem[sizeof(g_vb_solid_face_colors_Data)], vertices.data(), sizeof(ColoredVertex) * vertices.size());
     vmaUnmapMemory(allocator.get(), stagingAlloc);
-    mesh.vertexBuffer.reset(stagingBuffer);
-    mesh.vmaAlloc.reset(allocator.get(), stagingAlloc);
+    vertexBuffer.reset(stagingBuffer);
+    vmaAlloc.reset(allocator.get(), stagingAlloc);
 
-    mesh.viBindings.binding = 0;
-    mesh.viBindings.inputRate = vk::VertexInputRate::eVertex;
-    mesh.viBindings.stride = sizeof(ColoredVertex);
+    viBindings.binding = 0;
+    viBindings.inputRate = vk::VertexInputRate::eVertex;
+    viBindings.stride = sizeof(ColoredVertex);
 
-    mesh.viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32A32Sfloat, 0);
-    mesh.viAttribs.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(struct ColoredVertex, color));
+    viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32A32Sfloat, 0);
+    viAttribs.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(struct ColoredVertex, color));
 
     SceneObject cubeObj;
-    cubeObj.vertexBuffer = *mesh.vertexBuffer;
+    cubeObj.vertexBuffer = *vertexBuffer;
     cubeObj.bufferStart = 0;
     cubeObj.numVerts = 6 * 6;
     cubeObj.name = "cube";
 
     SceneObject coordinatesObj;
-    coordinatesObj.vertexBuffer = *mesh.vertexBuffer;
+    coordinatesObj.vertexBuffer = *vertexBuffer;
     coordinatesObj.bufferStart = cubeObj.numVerts + cubeObj.bufferStart;
     coordinatesObj.numVerts = 6;
     coordinatesObj.name = "world";
@@ -688,7 +687,7 @@ void etna::Renderer::initCubeVertexBuffers() {
 
     if (vikingRoomPath) {
         SceneObject meshObj;
-        meshObj.vertexBuffer = *mesh.vertexBuffer;
+        meshObj.vertexBuffer = *vertexBuffer;
         meshObj.bufferStart = coordinatesObj.numVerts + coordinatesObj.bufferStart;
         meshObj.numVerts = vertices.size();
         meshObj.visible = true;
@@ -724,9 +723,9 @@ void etna::Renderer::initPipeline() {
 
     vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo;
     pipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount = 1;
-    pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = &mesh.viBindings;
-    pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = mesh.viAttribs.size();
-    pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = mesh.viAttribs.data();
+    pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = &viBindings;
+    pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = viAttribs.size();
+    pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = viAttribs.data();
 
     vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo;
 
@@ -796,7 +795,7 @@ void etna::Renderer::initPipeline() {
                 *renderPass, 0,
                 vk::Pipeline(), 0
                 );
-    cubePipeline = device->createGraphicsPipelineUnique(vk::PipelineCache(), graphicsPipelineCreateInfo).value;
+    coloredVertexPipeline = device->createGraphicsPipelineUnique(vk::PipelineCache(), graphicsPipelineCreateInfo).value;
 }
 
 void etna::Renderer::initGui() {
@@ -953,8 +952,8 @@ void etna::Renderer::draw() {
     commandBuffers[0]->setViewport(0, 1, &viewport);
     commandBuffers[0]->setScissor(0, 1, &scissor);
 
-    commandBuffers[0]->bindPipeline(vk::PipelineBindPoint::eGraphics, *cubePipeline);
-    commandBuffers[0]->bindVertexBuffers( 0, 1, &*mesh.vertexBuffer, &offset);
+    commandBuffers[0]->bindPipeline(vk::PipelineBindPoint::eGraphics, *coloredVertexPipeline);
+    commandBuffers[0]->bindVertexBuffers( 0, 1, &*vertexBuffer, &offset);
 
     for (const auto& object: sceneObjects) {
         if (object.visible) {

@@ -20,15 +20,11 @@ namespace etna {
         glm::vec4 color;
     };
 
-//    struct TexturedVertex {
-//        glm::vec4 position;
-//    };
-
     struct SceneObject {
         std::string name;
         glm::vec3 position = {0,0,0};
         glm::vec3 rotation = {0,0,0};
-        glm::vec3 scale = {1, 1, 1};
+        glm::vec3 scale =    {1,1,1};
 
         bool visible = false;
         vk::Buffer vertexBuffer = {};
@@ -38,6 +34,14 @@ namespace etna {
         int numVerts = 0;
 
         uint32_t uniformBufferOffset = 0;
+    };
+
+    struct Camera {
+        float fov = 110.f;
+        float zNear = 1.f;
+
+        glm::vec4 pos = glm::vec4(0, 0, -15, 1);
+        glm::vec3 rotation = {};
     };
 
     class UniqueVmaAllocation {
@@ -77,6 +81,14 @@ namespace etna {
 
         VmaAllocator _allocator = nullptr;
         VmaAllocation _allocation = nullptr;
+    };
+
+    struct ImageData {
+        vk::UniqueImage image = {};
+        vk::UniqueImageView imageView = {};
+
+        vk::Format format = {};
+        UniqueVmaAllocation vmaAlloc = {};
     };
 
     class Renderer {
@@ -156,23 +168,8 @@ namespace etna {
         std::vector<vk::Image> swapchainImages;
         std::vector<vk::UniqueImageView> swapchainImageViews;
 
-        struct {
-            vk::UniqueImage image;
-            vk::UniqueImageView imageView;
-
-            vk::Format format = vk::Format::eD16Unorm;
-            UniqueVmaAllocation vmaAlloc;
-        } depthBuffer;
-
-        struct {
-            vk::UniqueImage image;
-            vk::UniqueImageView imageView;
-            UniqueVmaAllocation vmaAlloc;
-        } resolveBuffer;
-
-        std::vector<SceneObject> sceneObjects;
-
-        vk::PhysicalDeviceMemoryProperties memoryProperties;
+        ImageData depthBuffer = {.format=vk::Format::eD16Unorm};
+        ImageData resolveBuffer = {};
 
         struct {
             glm::mat4x4 P;
@@ -185,34 +182,26 @@ namespace etna {
         vk::DescriptorSet sharedDescriptorSet;
         std::byte* sharedUboMappedMemory = nullptr;
 
-
         vk::UniqueDescriptorSetLayout descSetLayout;
         vk::UniquePipelineLayout pipelineLayout;
         vk::UniqueDescriptorPool descriptorPool;
 
         vk::UniqueShaderModule vertexShader;
         vk::UniqueShaderModule fragmentShader;
-        vk::UniquePipeline cubePipeline;
+        vk::UniquePipeline coloredVertexPipeline;
+        vk::UniquePipeline texturedVertexPipeline;
 
         vk::UniqueRenderPass renderPass;
 
-        struct {
-            vk::UniqueBuffer vertexBuffer;
-            UniqueVmaAllocation vmaAlloc;
-            vk::VertexInputBindingDescription viBindings;
-            std::vector<vk::VertexInputAttributeDescription> viAttribs;
-            glm::vec3 rotation = {};
-            glm::vec3 pos = {};
-        } mesh;
+        vk::UniqueBuffer vertexBuffer;
+        UniqueVmaAllocation vmaAlloc;
 
-        struct {
-            float fov = 110.f;
-            float zNear = 1.f;
-            float zFar = 1000.f;
+        vk::VertexInputBindingDescription viBindings;
+        std::vector<vk::VertexInputAttributeDescription> viAttribs;
 
-            glm::vec4 pos = glm::vec4(0, 0, -15, 1);
-            glm::vec3 rotation = {};
-        } camera;
+        std::vector<SceneObject> sceneObjects;
+        Camera camera;
+
         GLFWwindow *_window = nullptr;
 
         int selectedSceneNode = -1;
