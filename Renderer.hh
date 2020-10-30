@@ -5,6 +5,8 @@
 #include <glm/glm.hpp>
 #include <imgui/imgui.h>
 
+#include <GLFW/glfw3.h>
+
 #include <VulkanMemoryAllocator/vk_mem_alloc.h>
 
 namespace etna {
@@ -13,11 +15,16 @@ namespace etna {
         glm::mat4 mvp;
     };
 
+    struct ColoredVertex {
+        glm::vec4 position;
+        glm::vec4 color;
+    };
+
     struct SceneObject {
         std::string name;
-        glm::vec3 position;
-        glm::vec3 rotation;
-        glm::vec3 scale;
+        glm::vec3 position = {0,0,0};
+        glm::vec3 rotation = {0,0,0};
+        glm::vec3 scale = {1, 1, 1};
 
         bool visible = false;
         vk::Buffer vertexBuffer = {};
@@ -41,13 +48,10 @@ namespace etna {
         void initCommandBuffer();
         void initSwapchain();
         void initDepthBuffer();
-        void initCubeUniformBuffer();
-        void initGridUniformBuffer();
         void initSharedUniformBuffer();
+
         void initPipelineLayout();
         void initDescriptorPool();
-        void initCubeDescriptorSet();
-        void intiGridDescriptorSet();
         void initSharedDescriptorSet();
 
         void initRenderPass();
@@ -125,30 +129,18 @@ namespace etna {
         struct {
             glm::mat4x4 P;
             glm::mat4x4 V;
-            glm::mat4x4 M;
-            glm::mat4x4 MVP;
-            glm::vec4 solid_color;
         } world;
-
-        struct UniformInfo {
-            vk::UniqueDeviceMemory memory;
-            vk::DescriptorBufferInfo bufferInfo;
-            vk::UniqueBuffer buffer;
-        };
-
-        UniformInfo cubeUniform;
-        UniformInfo gridUniform;
 
         vk::UniqueBuffer sharedUniformBuffer;
         VmaAllocation sharedUniformAllocation = nullptr;
         vk::DescriptorBufferInfo sharedBufferInfo;
         vk::DescriptorSet sharedDescriptorSet;
+        vk::UniqueDeviceMemory sharedUBOMemory;
 
         vk::UniqueDescriptorSetLayout descSetLayout;
         vk::UniquePipelineLayout pipelineLayout;
-        vk::UniqueDescriptorPool cubeDescriptorPool;
-        std::vector<vk::DescriptorSet> cubeDscriptorSets;
-        std::vector<vk::DescriptorSet> gridDescriptorSets;
+        vk::UniqueDescriptorPool descriptorPool;
+
         vk::UniqueShaderModule vertexShader;
         vk::UniqueShaderModule fragmentShader;
         vk::UniquePipeline cubePipeline;

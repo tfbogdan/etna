@@ -8,7 +8,6 @@ if(UNIX AND NOT APPLE)
 
     pkg_check_modules(libinput REQUIRED IMPORTED_TARGET libinput)
     pkg_check_modules(libudev REQUIRED IMPORTED_TARGET libudev)
-    pkg_check_modules(glfw REQUIRED IMPORTED_TARGET glfw3)
 endif()
 
 
@@ -48,12 +47,12 @@ compile_shader(${PROJECT_NAME} vertex_shader.vert)
 compile_shader(${PROJECT_NAME} fragment_shader.frag)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED)
-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 
-target_compile_options(${PROJECT_NAME} PRIVATE
- $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
- $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -Wextra -pedantic -Werror>
-)
+#target_compile_options(${PROJECT_NAME} PRIVATE
+# $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+# $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -pedantic -Werror>
+#)
 
 target_link_libraries(${PROJECT_NAME} 
     PRIVATE 

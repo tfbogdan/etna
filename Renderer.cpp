@@ -65,21 +65,19 @@ void etna::Renderer::initialize(GLFWwindow* window) {
     spdlog::debug("beginRecordCommandBuffer");
     beginRecordCommandBuffer(0);
 
+    spdlog::debug("initPipelineLayout");
+    initPipelineLayout();
+
+    initDescriptorPool();
+
     spdlog::debug("initVertexBuffers");
     initCubeVertexBuffers();
 
     spdlog::debug("initUniformBuffer");
-    initCubeUniformBuffer();
-    initGridUniformBuffer();
     initSharedUniformBuffer();
 
-    spdlog::debug("initPipelineLayout");
-    initPipelineLayout();
 
     spdlog::debug("initDescriptorSet");
-    initDescriptorPool();
-    initCubeDescriptorSet();
-    intiGridDescriptorSet();
     initSharedDescriptorSet();
 
     spdlog::debug("initShaders");
@@ -287,7 +285,7 @@ void etna::Renderer::initCommandBuffer() {
         cmdPoolInfo.queueFamilyIndex = queueFamily;
         cmdPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
         commandPool = device->createCommandPoolUnique(cmdPoolInfo);
-    } 
+    }
     vk::CommandBufferAllocateInfo cmdBuffAlocInfo(
                 *commandPool, vk::CommandBufferLevel::ePrimary, 2
                 );
@@ -373,49 +371,6 @@ void etna::Renderer::initDepthBuffer() {
     resolveBuffer.imageView = device->createImageViewUnique(resolveViewCreateInfo);
 }
 
-void etna::Renderer::initCubeUniformBuffer() {
-    vk::BufferCreateInfo bufferCreateInfo(
-                vk::BufferCreateFlags(),
-                sizeof(world.MVP) + sizeof(world.solid_color),
-                vk::BufferUsageFlagBits::eUniformBuffer,
-                vk::SharingMode::eExclusive,
-                0, nullptr
-                );
-    cubeUniform.buffer = device->createBufferUnique(bufferCreateInfo);
-    vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*cubeUniform.buffer);
-    vk::MemoryAllocateInfo allocInfo(memoryRequirements.size);
-    assert(memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, &allocInfo.memoryTypeIndex));
-    cubeUniform.memory = device->allocateMemoryUnique(allocInfo);
-    device->bindBufferMemory(*cubeUniform.buffer, *cubeUniform.memory, 0);
-
-    cubeUniform.bufferInfo.buffer = *cubeUniform.buffer;
-    cubeUniform.bufferInfo.offset = 0;
-    cubeUniform.bufferInfo.range = sizeof(world.MVP) + sizeof(world.solid_color);
-}
-
-void etna::Renderer::initGridUniformBuffer() {
-    vk::BufferCreateInfo bufferCreateInfo(
-                vk::BufferCreateFlags(),
-                sizeof(world.MVP) + sizeof(world.solid_color),
-                vk::BufferUsageFlagBits::eUniformBuffer,
-                vk::SharingMode::eExclusive,
-                0, nullptr
-                );
-
-    gridUniform.buffer = device->createBufferUnique(bufferCreateInfo);
-    vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*gridUniform.buffer);
-    vk::MemoryAllocateInfo allocInfo(
-                memoryRequirements.size
-                );
-    assert(memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, &allocInfo.memoryTypeIndex));
-    gridUniform.memory = device->allocateMemoryUnique(allocInfo);
-    device->bindBufferMemory(*gridUniform.buffer, *gridUniform.memory, 0);
-
-    gridUniform.bufferInfo.buffer = *gridUniform.buffer;
-    gridUniform.bufferInfo.offset = 0;
-    gridUniform.bufferInfo.range = sizeof(world.MVP) + sizeof(world.solid_color);
-}
-
 void etna::Renderer::initSharedUniformBuffer() {
     vk::BufferCreateInfo bufferCreateInfo = {};
     bufferCreateInfo.usage = vk::BufferUsageFlagBits::eUniformBuffer;
@@ -446,18 +401,9 @@ void etna::Renderer::initSharedUniformBuffer() {
     }
 }
 
-struct Vertex {
-    glm::vec4 position;
-    glm::vec4 color;
-};
-
-
-std::vector<Vertex> vertices;
-std::vector<uint32_t> indices;
-
 void etna::Renderer::updateUniformBuffer() {
     world.P = glm::infinitePerspectiveLH(glm::radians(camera.fov), surfaceCapabilities.currentExtent.width * 1.f / surfaceCapabilities.currentExtent.height, camera.zNear);
-//    world.P = glm::perspectiveLH(glm::radians(camera.fov), surfaceCapabilities.currentExtent.width * 1.f / surfaceCapabilities.currentExtent.height, camera.zNear, camera.zFar);
+    //    world.P = glm::perspectiveLH(glm::radians(camera.fov), surfaceCapabilities.currentExtent.width * 1.f / surfaceCapabilities.currentExtent.height, camera.zNear, camera.zFar);
     glm::quat qPitch    = glm::angleAxis(glm::radians(camera.rotation.x), glm::vec3(1, 0, 0));
     glm::quat qYaw      = glm::angleAxis(glm::radians(camera.rotation.y), glm::vec3(0, 1, 0));
     glm::quat qRoll     = glm::angleAxis(glm::radians(camera.rotation.z), glm::vec3(0,0,1));
@@ -471,48 +417,57 @@ void etna::Renderer::updateUniformBuffer() {
 
     world.V = rotate * translate;
 
-    world.M = glm::translate(glm::mat4(1.f), mesh.pos) * glm::eulerAngleXYZ(
-                glm::radians(mesh.rotation.x),
-                glm::radians(mesh.rotation.y),
-                glm::radians(mesh.rotation.z)
-                );
-
-    world.MVP = world.P * world.V * world.M;
-    world.solid_color = glm::vec4(1.f, 0.f, 1.f, 1.f);
-
     updateUniformBuffers();
-
-    const auto gridMVP = world.P * world.V * glm::mat4(1.f);
-
-    UniformBuffer *buffer = static_cast<UniformBuffer*>(device->mapMemory(*cubeUniform.memory, 0, sizeof(UniformBuffer), vk::MemoryMapFlags()));
-    buffer->mvp = world.MVP;
-    device->unmapMemory(*cubeUniform.memory);
-
-    buffer = static_cast<UniformBuffer*>(device->mapMemory(*gridUniform.memory, 0, sizeof(gridMVP), vk::MemoryMapFlags()));
-    buffer->mvp = gridMVP;
-    device->unmapMemory(*gridUniform.memory);
-
 }
 
 void etna::Renderer::updateUniformBuffers() {
-    void *mem = nullptr;
-    vmaMapMemory(allocator, sharedUniformAllocation, &mem);
+//    void *mem = nullptr;
+    void *sharedMem = nullptr;
+    vmaMapMemory(allocator, sharedUniformAllocation, &sharedMem);
+
     for (const auto& obj: sceneObjects) {
-        auto& objUniform = *reinterpret_cast<UniformBuffer*>(static_cast<std::byte*>(mem) + obj.uniformBufferOffset);
-        objUniform.mvp = glm::translate(glm::scale(glm::mat4(1.f), obj.scale), obj.position) * glm::eulerAngleXYX(
-                        glm::radians(obj.rotation.x),
-                        glm::radians(obj.rotation.y),
-                        glm::radians(obj.rotation.z)
+//        mem = device->mapMemory(*obj.uboMemory, 0, VK_WHOLE_SIZE, {});
+//        auto& objUniform = *reinterpret_cast<UniformBuffer*>(mem);
+        auto& sharedObjUniform = *reinterpret_cast<UniformBuffer*>(static_cast<std::byte*>(sharedMem) + obj.uniformBufferOffset);
+        const auto& M = glm::translate(glm::scale(glm::mat4(1.f), obj.scale), obj.position) * glm::eulerAngleXYX(
+                    glm::radians(obj.rotation.x),
+                    glm::radians(obj.rotation.y),
+                    glm::radians(obj.rotation.z)
                     );
+
+        sharedObjUniform.mvp /*= objUniform.mvp */= world.P * world.V * M;
+//        device->unmapMemory(*obj.uboMemory);
     }
     vmaUnmapMemory(allocator, sharedUniformAllocation);
 }
 
 void etna::Renderer::initPipelineLayout() {
-    vk::DescriptorSetLayoutBinding layoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex);
-    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo({}, 1, &layoutBinding);
+    // So this doesn't work
+    //    vk::DescriptorSetLayoutBinding layoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex);
+    //    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo({}, 1, &layoutBinding);
+    //    descSetLayout = device->createDescriptorSetLayoutUnique(descriptorLayoutInfo);
+    //    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, 1, &*descSetLayout);
+
+    // While this does?!
+    vk::DescriptorSetLayoutBinding layoutBinding(
+                0, vk::DescriptorType::eUniformBufferDynamic,
+                1,
+                vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex),
+                nullptr
+                );
+    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo(
+                vk::DescriptorSetLayoutCreateFlags(),
+                1, &layoutBinding
+                );
+
     descSetLayout = device->createDescriptorSetLayoutUnique(descriptorLayoutInfo);
-    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, 1, &*descSetLayout);
+
+    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo(
+                vk::PipelineLayoutCreateFlags(),
+                1, &*descSetLayout, 0, nullptr
+                );
+
+    pipelineLayout = device->createPipelineLayoutUnique(pipelineLayoutCreateInfo);
 }
 
 void etna::Renderer::initDescriptorPool() {
@@ -535,49 +490,12 @@ void etna::Renderer::initDescriptorPool() {
                 1000 * descPoolSizes.size(), descPoolSizes.size(), descPoolSizes.data()
                 );
 
-    cubeDescriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
-}
-
-void etna::Renderer::initCubeDescriptorSet() {
-    vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(
-                *cubeDescriptorPool, 1, &*descSetLayout
-                );
-
-    cubeDscriptorSets = device->allocateDescriptorSets(descriptorSetAllocateInfo);
-
-    vk::WriteDescriptorSet writes(
-                cubeDscriptorSets.front(),
-                0, 0,
-                1, vk::DescriptorType::eUniformBufferDynamic,
-                nullptr,
-                &cubeUniform.bufferInfo,
-                nullptr
-                );
-    device->updateDescriptorSets(1, &writes, 0, nullptr);
-}
-
-void etna::Renderer::intiGridDescriptorSet() {
-    vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(
-                *cubeDescriptorPool, 1, &*descSetLayout
-                );
-
-    gridDescriptorSets = device->allocateDescriptorSets(descriptorSetAllocateInfo);
-
-    vk::WriteDescriptorSet writes(
-                gridDescriptorSets.front(),
-                0, 0,
-                1, vk::DescriptorType::eUniformBufferDynamic,
-                nullptr,
-                &gridUniform.bufferInfo,
-                nullptr
-                );
-    device->updateDescriptorSets(1, &writes, 0, nullptr);
-
+    descriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
 }
 
 void etna::Renderer::initSharedDescriptorSet() {
     vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(
-                *cubeDescriptorPool, 1, &*descSetLayout
+                *descriptorPool, 1, &*descSetLayout
                 );
 
     sharedDescriptorSet = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
@@ -709,75 +627,78 @@ void etna::Renderer::initGuiFramebuffers() {
 
 }
 
-
 #define XYZ1(_x_, _y_, _z_) {(_x_), (_y_), (_z_), 1.f}
 constexpr std::array g_vb_solid_face_colors_Data {
     // red face
-    Vertex{ XYZ1(-1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
-    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
-    Vertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
     // green face
-    Vertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
-    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
     // blue face
-    Vertex{ XYZ1(-1, 1, 1), XYZ1(0.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(0.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 0.f, 1.f) },
     // yellow face
-    Vertex{ XYZ1(1, 1, 1), XYZ1(1.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
-    Vertex{ XYZ1(1, -1, -1), XYZ1(1.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, 1), XYZ1(1.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(1.f, 1.f, 0.f) },
     // magenta face
-    Vertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
-    Vertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    Vertex{ XYZ1(-1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
     // cyan face
-    Vertex{ XYZ1(1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
-    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    Vertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    Vertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
-    Vertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
 
     // Origin X axis, red
-    Vertex{ XYZ1(1000000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
-    Vertex{ XYZ1(-10000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(1000000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(-10000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
 
     // Origin Y axis, green
-    Vertex{ XYZ1(0, 1000000, 0), XYZ1(0.f, 1.f, 0.f) },
-    Vertex{ XYZ1(0, -1000000, 0), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(0, 1000000, 0), XYZ1(0.f, 1.f, 0.f) },
+    etna::ColoredVertex{ XYZ1(0, -1000000, 0), XYZ1(0.f, 1.f, 0.f) },
 
     // Origin Y axis, blue
-    Vertex{ XYZ1(0, 0, 1000000), XYZ1(0.f, 0.f, 1.f) },
-    Vertex{ XYZ1(0, 0, -1000000), XYZ1(0.f, 0.f, 1.f) }
+    etna::ColoredVertex{ XYZ1(0, 0, 1000000), XYZ1(0.f, 0.f, 1.f) },
+    etna::ColoredVertex{ XYZ1(0, 0, -1000000), XYZ1(0.f, 0.f, 1.f) }
 };
 
 
 void etna::Renderer::initCubeVertexBuffers() {
-    tinyobj::attrib_t attrib;
-    std::vector<tinyobj::shape_t> shapes;
-    std::vector<tinyobj::material_t> materials;
-    std::string warns;
-    std::string errors;
     auto vikingRoomPath = getenv("VIKING_ROOM_OBJ");
 
+    std::vector<etna::ColoredVertex> vertices;
+    std::vector<uint32_t> indices;
+
     if (vikingRoomPath) {
+        tinyobj::attrib_t attrib;
+        std::vector<tinyobj::shape_t> shapes;
+        std::vector<tinyobj::material_t> materials;
+        std::string warns;
+        std::string errors;
+
         tinyobj::LoadObj(&attrib, &shapes, &materials, &warns, &errors, vikingRoomPath);
         if (!warns.empty()) spdlog::warn(warns);
         if (!errors.empty()) spdlog::error(errors);
@@ -788,7 +709,7 @@ void etna::Renderer::initCubeVertexBuffers() {
 
         for (const auto& shape : shapes) {
             for ([[maybe_unused]]const auto& index : shape.mesh.indices) {
-                Vertex vertex{};
+                ColoredVertex vertex{};
 
                 vertex.position = {
                     attrib.vertices[3 * index.vertex_index + 2] * 5,
@@ -809,7 +730,7 @@ void etna::Renderer::initCubeVertexBuffers() {
 
     vk::BufferCreateInfo bufferCreateInfo(
                 vk::BufferCreateFlags(),
-                sizeof(g_vb_solid_face_colors_Data) + sizeof(Vertex) * vertices.size(),
+                sizeof(g_vb_solid_face_colors_Data) + sizeof(ColoredVertex) * vertices.size(),
                 vk::BufferUsageFlagBits::eVertexBuffer,
                 vk::SharingMode::eExclusive,
                 0, nullptr
@@ -823,16 +744,16 @@ void etna::Renderer::initCubeVertexBuffers() {
     mesh.vertexMemory = device->allocateMemoryUnique(memoryAllocateInfo);
     std::byte *vMem = static_cast<std::byte*>(device->mapMemory(*mesh.vertexMemory, 0, memoryRequirements.size));
     memcpy(vMem, g_vb_solid_face_colors_Data.data(), sizeof(g_vb_solid_face_colors_Data));
-    memcpy(&vMem[sizeof(g_vb_solid_face_colors_Data)], vertices.data(), sizeof(Vertex) * vertices.size());
+    memcpy(&vMem[sizeof(g_vb_solid_face_colors_Data)], vertices.data(), sizeof(ColoredVertex) * vertices.size());
     device->unmapMemory(*mesh.vertexMemory);
 
     device->bindBufferMemory(*mesh.vertexBuffer, *mesh.vertexMemory, 0);
     mesh.viBindings.binding = 0;
     mesh.viBindings.inputRate = vk::VertexInputRate::eVertex;
-    mesh.viBindings.stride = sizeof(Vertex);
+    mesh.viBindings.stride = sizeof(ColoredVertex);
 
     mesh.viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32A32Sfloat, 0);
-    mesh.viAttribs.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(struct Vertex, color));
+    mesh.viAttribs.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(struct ColoredVertex, color));
 
     SceneObject cubeObj;
     cubeObj.vertexBuffer = *mesh.vertexBuffer;
@@ -847,8 +768,9 @@ void etna::Renderer::initCubeVertexBuffers() {
     coordinatesObj.name = "world";
     coordinatesObj.visible = true;
     coordinatesObj.topology = vk::PrimitiveTopology::eLineList;
-    sceneObjects.push_back(cubeObj);
-    sceneObjects.push_back(coordinatesObj);
+
+    sceneObjects.emplace_back(std::move(cubeObj));
+    sceneObjects.emplace_back(std::move(coordinatesObj));
 
     if (vikingRoomPath) {
         SceneObject meshObj;
@@ -857,8 +779,8 @@ void etna::Renderer::initCubeVertexBuffers() {
         meshObj.numVerts = vertices.size();
         meshObj.name = "viking_room";
 
-        sceneObjects.push_back(meshObj);
-   }
+        sceneObjects.emplace_back(std::move(meshObj));
+    }
 }
 
 vk::SampleCountFlagBits etna::Renderer::getMaxUsableSampleCount() {
@@ -898,15 +820,6 @@ void etna::Renderer::initPipeline() {
                 false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,
                 false, 0, 0, 0, 1.f
                 );
-//    vk::PipelineColorBlendAttachmentState pipelineColorBlendAttachmentState(
-//                false, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd, vk::BlendFactor::eZero, vk::BlendFactor::eZero, vk::BlendOp::eAdd, vk::ColorComponentFlags(0xfu)
-//                );
-
-//    vk::PipelineColorBlendStateCreateInfo pipelineColorBlendStateCreateInfo(
-//                vk::PipelineColorBlendStateCreateFlags(),
-//                false, vk::LogicOp::eNoOp, 1, &pipelineColorBlendAttachmentState,
-//                {1.f, 1.f, 1.f, 1.f}
-//                );
 
     vk::PipelineColorBlendAttachmentState pipelineColorBlendAttachmentState = {};
     pipelineColorBlendAttachmentState.blendEnable = true;
@@ -945,10 +858,10 @@ void etna::Renderer::initPipeline() {
 
     std::array shaderStages = {
         vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
-            vk::ShaderStageFlagBits::eVertex, *vertexShader, "main", nullptr
+        vk::ShaderStageFlagBits::eVertex, *vertexShader, "main", nullptr
         ),
         vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
-            vk::ShaderStageFlagBits::eFragment, *fragmentShader, "main", nullptr
+        vk::ShaderStageFlagBits::eFragment, *fragmentShader, "main", nullptr
         )
     };
 
@@ -976,7 +889,7 @@ void etna::Renderer::initGui() {
     ImGui::CreateContext();
     [[maybe_unused]] ImGuiIO& io = ImGui::GetIO();
 
-    ImGui::StyleColorsLight();
+    ImGui::StyleColorsClassic();
     ImGui_ImplGlfw_InitForVulkan(_window, true);
 
     ImGui_ImplVulkan_InitInfo imguiInitInfo = {};
@@ -986,7 +899,7 @@ void etna::Renderer::initGui() {
     imguiInitInfo.QueueFamily = queueFamily;
     imguiInitInfo.Queue = queue;
     imguiInitInfo.PipelineCache = nullptr;
-    imguiInitInfo.DescriptorPool = *cubeDescriptorPool;
+    imguiInitInfo.DescriptorPool = *descriptorPool;
     imguiInitInfo.Allocator = nullptr;
 
     imguiInitInfo.MinImageCount = surfaceCapabilities.minImageCount;
@@ -1104,8 +1017,8 @@ void etna::Renderer::draw() {
     commandBuffers[0]->beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
     const vk::DeviceSize offset(0);
-//    const auto rawCubeDescSets = vk::uniqueToRaw(cubeDscriptorSets);
-//    const auto rawGridDescSets = vk::uniqueToRaw(gridDescriptorSets);
+    //    const auto rawCubeDescSets = vk::uniqueToRaw(cubeDscriptorSets);
+    //    const auto rawGridDescSets = vk::uniqueToRaw(gridDescriptorSets);
     vk::Viewport viewport;
     viewport.width = surfaceCapabilities.currentExtent.width;
     viewport.height = surfaceCapabilities.currentExtent.height;
@@ -1126,19 +1039,6 @@ void etna::Renderer::draw() {
         commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, 1, &sharedDescriptorSet, 1, &object.uniformBufferOffset);
         commandBuffers[0]->draw(object.numVerts, 1, object.bufferStart, 0);
     }
-
-
-//    // Rendering the grid lines
-//    commandBuffers[0]->setPrimitiveTopologyEXT(vk::PrimitiveTopology::eLineList, dldi);
-//    commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, rawGridDescSets.size(), rawGridDescSets.data(), 0, nullptr);
-//    commandBuffers[0]->draw(6, 1, 6 * 6, 0);
-
-    // Rendering the cube
-//    commandBuffers[0]->setPrimitiveTopologyEXT(vk::PrimitiveTopology::eTriangleList, dldi);
-//    commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, rawCubeDescSets.size(), rawCubeDescSets.data(), 0, nullptr);
-//    commandBuffers[0]->draw(6 * 6, 1, 0, 0);
-//    commandBuffers[0]->draw(vertices.size(), 1, 6 * 6 + 6, 0);
-
 
     commandBuffers[0]->endRenderPass();
     endRecordCommandBuffer(0);
