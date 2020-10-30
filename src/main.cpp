@@ -10,10 +10,6 @@
 #include <vector>
 #include <thread>
 
-
-
-
-
 bool doneLooping = false;
 
 #ifdef __linux__ 
@@ -28,7 +24,6 @@ bool doneLooping = false;
 
 #include <unistd.h>
 #include <fcntl.h>
-
 
 int open_restricted(const char *path, int flags, void */*user_data*/) {
     int fd = open(path, flags);

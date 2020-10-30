@@ -11,6 +11,7 @@ if(UNIX AND NOT APPLE)
 endif()
 
 
+find_package(Vulkan REQUIRED)
 find_program(GLSLANG_VALIDATOR NAMES glslangValidator
                          HINTS $ENV{VULKAN_SDK})
 
@@ -18,33 +19,31 @@ if(NOT GLSLANG_VALIDATOR)
      message(SEND_ERROR "Couldn't find glslangValidator.")
 endif()
 
-function(compile_shader target shader_file)
+macro(compile_shader shader_file)
     get_filename_component(shaderName ${shader_file} NAME_WE)
+    file(MAKE_DIRECTORY {PROJECT_CURRENT_BINARY_DIR}/shaders)
+
     add_custom_command(
-            COMMAND ${GLSLANG_VALIDATOR} -V ${CMAKE_CURRENT_SOURCE_DIR}/${shader_file} --vn ${shaderName} -o ${PROJECT_BINARY_DIR}/${shaderName}.h
+            COMMAND ${GLSLANG_VALIDATOR} -V ${CMAKE_CURRENT_LIST_DIR}/${shader_file} --vn ${shaderName} -o ${PROJECT_BINARY_DIR}/shaders/${shaderName}.h
             DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shader_file}
             OUTPUT ${PROJECT_BINARY_DIR}/${shaderName}.h
             COMMENT "Compiling shader ${shaderName}"
     )
-    target_sources(${target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${shader_file} ${PROJECT_BINARY_DIR}/${shaderName}.h)
-endfunction()
+    target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${shader_file} ${PROJECT_BINARY_DIR}/${shaderName}.h)
+endmacro()
 
-find_package(Vulkan REQUIRED)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 add_executable(${PROJECT_NAME}
-    main.cpp
-    Renderer.cpp
-    Renderer.hh
-    Pipeline.hh
-    Pipeline.cc
 )
 
+add_subdirectory(src)
 add_subdirectory(dependencies)
+add_subdirectory(shaders)
 
-compile_shader(${PROJECT_NAME} vertex_shader.vert)
-compile_shader(${PROJECT_NAME} fragment_shader.frag)
+compile_shader(shaders/vertex_shader.vert)
+compile_shader(shaders/fragment_shader.frag)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)

@@ -11,8 +11,8 @@
 #include <set>
 #include <map>
 
-#include <vertex_shader.h>
-#include <fragment_shader.h>
+#include <shaders/vertex_shader.h>
+#include <shaders/fragment_shader.h>
 
 #include <chrono>
 
