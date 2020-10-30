@@ -164,22 +164,6 @@ void etna::Renderer::recreateSwapChain() {
     initGuiFramebuffers();
 }
 
-bool etna::Renderer::memory_type_from_properties(uint32_t typeBits, vk::MemoryPropertyFlags requirements_mask, uint32_t *typeIndex) {
-    // Search memtypes to find first index with those properties
-    for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
-        if ((typeBits & 1) == 1) {
-            // Type is available, does it match user properties?
-            if ((memoryProperties.memoryTypes[i].propertyFlags & requirements_mask) == requirements_mask) {
-                *typeIndex = i;
-                return true;
-            }
-        }
-        typeBits >>= 1;
-    }
-    // No memory types matched, return failure
-    return false;
-}
-
 void etna::Renderer::initDevice() {
     std::vector<VkBool32> supportsPresent;
 
@@ -317,34 +301,27 @@ void etna::Renderer::initDepthBuffer() {
                 vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
 
     depthBuffer.image = device->createImageUnique(imageCreateInfo);
-    vk::MemoryRequirements memoryRequirements = device->getImageMemoryRequirements(*depthBuffer.image);
+    VmaAllocationCreateInfo allocCreateInfo = {};
+    allocCreateInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    VmaAllocation stagingAlloc;
+    vmaAllocateMemoryForImage(allocator.get(), *depthBuffer.image, &allocCreateInfo, &stagingAlloc, nullptr);
+    vmaBindImageMemory(allocator.get(), stagingAlloc, *depthBuffer.image);
+    depthBuffer.vmaAlloc.reset(allocator.get(), stagingAlloc);
 
-    vk::MemoryAllocateInfo memoryAllocateInfo(memoryRequirements.size, 0);
-
-    assert(memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal, &memoryAllocateInfo.memoryTypeIndex));
-    depthBuffer.memory = device->allocateMemoryUnique(memoryAllocateInfo);
-    device->bindImageMemory(*depthBuffer.image, *depthBuffer.memory, 0);
-
-    vk::ImageViewCreateInfo imageViewCreateInfo(
-                vk::ImageViewCreateFlags(), *depthBuffer.image, vk::ImageViewType::e2D, depthBuffer.format, vk::ComponentMapping(),
-                vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1)
-                );
+    vk::ImageViewCreateInfo imageViewCreateInfo({}, *depthBuffer.image, vk::ImageViewType::e2D, depthBuffer.format, {},
+                                                vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1));
     depthBuffer.imageView = device->createImageViewUnique(imageViewCreateInfo);
 
     vk::ImageCreateInfo resolveBufferInfo(
-                vk::ImageCreateFlags{},
-                vk::ImageType::e2D,
-                vk::Format::eB8G8R8A8Unorm,
-                vk::Extent3D(surfaceCapabilities.currentExtent, 1),
-                1, 1, getMaxUsableSampleCount(), vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment, vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
+                {}, vk::ImageType::e2D, vk::Format::eB8G8R8A8Unorm, vk::Extent3D(surfaceCapabilities.currentExtent, 1), 1, 1,
+                getMaxUsableSampleCount(), vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
+                vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
 
     resolveBuffer.image = device->createImageUnique(resolveBufferInfo);
-    memoryRequirements = device->getImageMemoryRequirements(*resolveBuffer.image);
-    memoryAllocateInfo = vk::MemoryAllocateInfo(memoryRequirements.size, 0);
+    vmaAllocateMemoryForImage(allocator.get(), *resolveBuffer.image, &allocCreateInfo, &stagingAlloc, nullptr);
+    vmaBindImageMemory(allocator.get(), stagingAlloc, *resolveBuffer.image);
+    resolveBuffer.vmaAlloc.reset(allocator.get(), stagingAlloc);
 
-    assert(memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eDeviceLocal, &memoryAllocateInfo.memoryTypeIndex));
-    resolveBuffer.memory = device->allocateMemoryUnique(memoryAllocateInfo);
-    device->bindImageMemory(*resolveBuffer.image, *resolveBuffer.memory, 0);
     vk::ImageViewCreateInfo resolveViewCreateInfo(
                 vk::ImageViewCreateFlags(), *resolveBuffer.image, vk::ImageViewType::e2D, vk::Format::eB8G8R8A8Unorm, vk::ComponentMapping(),
                 vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
@@ -677,18 +654,20 @@ void etna::Renderer::initCubeVertexBuffers() {
                 0, nullptr
                 );
     mesh.vertexBuffer = device->createBufferUnique(bufferCreateInfo);
+    VmaAllocationCreateInfo allocCreateInfo = {};
+    allocCreateInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+    VkBuffer stagingBuffer;
+    VmaAllocation stagingAlloc;
+    vmaCreateBuffer(allocator.get(), &static_cast<VkBufferCreateInfo&>(bufferCreateInfo), &allocCreateInfo, &stagingBuffer, &stagingAlloc, nullptr);
+    std::byte *vMem;
 
-    vk::MemoryRequirements memoryRequirements = device->getBufferMemoryRequirements(*mesh.vertexBuffer);
-    vk::MemoryAllocateInfo memoryAllocateInfo(memoryRequirements.size);
-    assert(memory_type_from_properties(memoryRequirements.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, &memoryAllocateInfo.memoryTypeIndex));
-
-    mesh.vertexMemory = device->allocateMemoryUnique(memoryAllocateInfo);
-    std::byte *vMem = static_cast<std::byte*>(device->mapMemory(*mesh.vertexMemory, 0, memoryRequirements.size));
+    vmaMapMemory(allocator.get(), stagingAlloc, reinterpret_cast<void**>(&vMem));
     memcpy(vMem, g_vb_solid_face_colors_Data.data(), sizeof(g_vb_solid_face_colors_Data));
     memcpy(&vMem[sizeof(g_vb_solid_face_colors_Data)], vertices.data(), sizeof(ColoredVertex) * vertices.size());
-    device->unmapMemory(*mesh.vertexMemory);
+    vmaUnmapMemory(allocator.get(), stagingAlloc);
+    mesh.vertexBuffer.reset(stagingBuffer);
+    mesh.vmaAlloc.reset(allocator.get(), stagingAlloc);
 
-    device->bindBufferMemory(*mesh.vertexBuffer, *mesh.vertexMemory, 0);
     mesh.viBindings.binding = 0;
     mesh.viBindings.inputRate = vk::VertexInputRate::eVertex;
     mesh.viBindings.stride = sizeof(ColoredVertex);
@@ -893,8 +872,7 @@ void etna::Renderer::buildGui() {
     ImGui::Begin("Camera properties");
 
     ImGui::DragFloat("fov", &camera.fov, .1f, 20.f, 180.f);
-    ImGui::DragFloat("nearPlane", &camera.zNear, .1f, 1.f, 100.f);
-    ImGui::DragFloat("farPlane", &camera.zFar, .1f, 10.f, 1000000.f);
+    ImGui::DragFloat("near", &camera.zNear, .1f, 1.f, 100.f);
 
     ImGui::DragFloat3("Position", &camera.pos[0], .1f);
     ImGui::DragFloat3("Rotation", &camera.rotation[0], .1f, -360.f, 360.0f);
@@ -908,7 +886,7 @@ void etna::Renderer::buildGui() {
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
     vmaCalculateStats(allocator.get(), &vmaStats);
-    ImGui::Text("%ldMb of GPU memory used", vmaStats.total.usedBytes / 8 / 8);
+    ImGui::Text("%ldMb of GPU memory used", vmaStats.total.usedBytes / 1024 / 1024);
 
     ImGui::End();
 

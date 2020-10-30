@@ -161,20 +161,18 @@ namespace etna {
             vk::UniqueImageView imageView;
 
             vk::Format format = vk::Format::eD16Unorm;
-            vk::UniqueDeviceMemory memory;
+            UniqueVmaAllocation vmaAlloc;
         } depthBuffer;
 
         struct {
             vk::UniqueImage image;
             vk::UniqueImageView imageView;
-            vk::UniqueDeviceMemory memory;
+            UniqueVmaAllocation vmaAlloc;
         } resolveBuffer;
 
         std::vector<SceneObject> sceneObjects;
 
         vk::PhysicalDeviceMemoryProperties memoryProperties;
-
-        bool memory_type_from_properties(uint32_t typeBits, vk::MemoryPropertyFlags requirements_mask, uint32_t *typeIndex);
 
         struct {
             glm::mat4x4 P;
@@ -200,7 +198,7 @@ namespace etna {
 
         struct {
             vk::UniqueBuffer vertexBuffer;
-            vk::UniqueDeviceMemory vertexMemory;
+            UniqueVmaAllocation vmaAlloc;
             vk::VertexInputBindingDescription viBindings;
             std::vector<vk::VertexInputAttributeDescription> viAttribs;
             glm::vec3 rotation = {};
