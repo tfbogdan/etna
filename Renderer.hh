@@ -20,6 +20,10 @@ namespace etna {
         glm::vec4 color;
     };
 
+//    struct TexturedVertex {
+//        glm::vec4 position;
+//    };
+
     struct SceneObject {
         std::string name;
         glm::vec3 position = {0,0,0};
@@ -36,9 +40,47 @@ namespace etna {
         uint32_t uniformBufferOffset = 0;
     };
 
+    class UniqueVmaAllocation {
+    public:
+        UniqueVmaAllocation() = default;
+        UniqueVmaAllocation(VmaAllocator allocator, VmaAllocation allocation)
+            : _allocator(allocator),
+              _allocation(allocation)
+        {}
+        UniqueVmaAllocation(const UniqueVmaAllocation&) = delete;
+        UniqueVmaAllocation(UniqueVmaAllocation&& mv)
+            : _allocator(mv._allocator) {
+            std::swap(_allocation, mv._allocation);
+        }
+
+        ~UniqueVmaAllocation() {
+            clear();
+        }
+
+        operator const VmaAllocation& () {
+            return _allocation;
+        }
+
+        void reset(VmaAllocator allocator, VmaAllocation allocation) {
+            clear();
+            _allocator = allocator;
+            _allocation = allocation;
+        }
+    private:
+        void clear() {
+            if (_allocator and _allocation) {
+                vmaFreeMemory(_allocator, _allocation);
+                _allocator = nullptr;
+                _allocation = nullptr;
+            }
+        }
+
+        VmaAllocator _allocator = nullptr;
+        VmaAllocation _allocation = nullptr;
+    };
+
     class Renderer {
     public:
-        ~Renderer();
         Renderer() = default;
 
         void initialize(GLFWwindow* window);
@@ -83,10 +125,18 @@ namespace etna {
         vk::DispatchLoaderDynamic dldi;
         vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic> debugUtilsMessenger;
 
-        vk::UniqueDevice device;
-        vk::DispatchLoaderDynamic dldid;
+        struct allocatorDeleter {
+            void operator()(VmaAllocator alloc) {
+                vmaDestroyAllocator(alloc);
+            }
+        };
         std::vector<vk::PhysicalDevice> gpus;
         vk::PhysicalDevice gpu;
+
+        vk::UniqueDevice device;
+        std::unique_ptr<VmaAllocator_T, allocatorDeleter> allocator;
+
+        vk::DispatchLoaderDynamic dldid;
 
         void updateUniformBuffer();
         void updateUniformBuffers();
@@ -132,10 +182,11 @@ namespace etna {
         } world;
 
         vk::UniqueBuffer sharedUniformBuffer;
-        VmaAllocation sharedUniformAllocation = nullptr;
+        UniqueVmaAllocation sharedUniformAllocation;
         vk::DescriptorBufferInfo sharedBufferInfo;
         vk::DescriptorSet sharedDescriptorSet;
-        vk::UniqueDeviceMemory sharedUBOMemory;
+        std::byte* sharedUboMappedMemory = nullptr;
+
 
         vk::UniqueDescriptorSetLayout descSetLayout;
         vk::UniquePipelineLayout pipelineLayout;
@@ -146,7 +197,6 @@ namespace etna {
         vk::UniquePipeline cubePipeline;
 
         vk::UniqueRenderPass renderPass;
-        VmaAllocator allocator = nullptr;
 
         struct {
             vk::UniqueBuffer vertexBuffer;
@@ -172,6 +222,7 @@ namespace etna {
         std::vector<vk::UniqueFramebuffer> guiFramebuffers;
         vk::UniqueRenderPass guiRenderPass;
         bool done_looping = false;
+        VmaStats vmaStats = {};
     };
 
 }

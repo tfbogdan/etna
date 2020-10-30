@@ -37,16 +37,6 @@ constexpr std::array validationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
 
-etna::Renderer::~Renderer() {
-    if (sharedUniformAllocation) {
-        vmaFreeMemory(allocator, sharedUniformAllocation);
-    }
-
-    if (allocator) {
-        vmaDestroyAllocator(allocator);
-    }
-}
-
 void etna::Renderer::initialize(GLFWwindow* window) {
     _window = window;
 
@@ -242,7 +232,9 @@ void etna::Renderer::initDevice() {
     allocInfo.device = *device;
     allocInfo.instance = *instance;
     allocInfo.physicalDevice = gpu;
-    vmaCreateAllocator(&allocInfo, &allocator); // TODO: check result
+    VmaAllocator stagingAllocator;
+    vmaCreateAllocator(&allocInfo, &stagingAllocator); // TODO: check result
+    allocator.reset(stagingAllocator);
 
     queue = device->getQueue(queueFamily, 0);
 }
@@ -286,9 +278,7 @@ void etna::Renderer::initCommandBuffer() {
         cmdPoolInfo.flags = vk::CommandPoolCreateFlagBits::eResetCommandBuffer;
         commandPool = device->createCommandPoolUnique(cmdPoolInfo);
     }
-    vk::CommandBufferAllocateInfo cmdBuffAlocInfo(
-                *commandPool, vk::CommandBufferLevel::ePrimary, 2
-                );
+    vk::CommandBufferAllocateInfo cmdBuffAlocInfo(*commandPool, vk::CommandBufferLevel::ePrimary, 2);
     commandBuffers = device->allocateCommandBuffersUnique(cmdBuffAlocInfo);
 }
 
@@ -313,27 +303,18 @@ void etna::Renderer::initSwapchain() {
     swapchainImageViews.clear();
 
     for(auto &image: swapchainImages) {
-        vk::ImageViewCreateInfo viewInfo(
-                    vk::ImageViewCreateFlags(),
-                    image,
-                    vk::ImageViewType::e2D,
-                    vk::Format::eB8G8R8A8Unorm,
-                    vk::ComponentMapping(vk::ComponentSwizzle::eIdentity),
-                    vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1)
-                    );
-
+        vk::ImageViewCreateInfo viewInfo( vk::ImageViewCreateFlags(), image, vk::ImageViewType::e2D,vk::Format::eB8G8R8A8Unorm,
+                                          vk::ComponentMapping(vk::ComponentSwizzle::eIdentity),
+                                          vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
         swapchainImageViews.emplace_back(device->createImageViewUnique(viewInfo));
     }
 }
 
 void etna::Renderer::initDepthBuffer() {
     vk::ImageCreateInfo imageCreateInfo(
-                vk::ImageCreateFlags(),
-                vk::ImageType::e2D,
-                depthBuffer.format,
-                vk::Extent3D(surfaceCapabilities.currentExtent, 1),
-                1, 1, getMaxUsableSampleCount(), vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined
-                );
+                {}, vk::ImageType::e2D, depthBuffer.format, vk::Extent3D(surfaceCapabilities.currentExtent, 1), 1, 1,
+                getMaxUsableSampleCount(), vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eDepthStencilAttachment,
+                vk::SharingMode::eExclusive, 0, nullptr, vk::ImageLayout::eUndefined);
 
     depthBuffer.image = device->createImageUnique(imageCreateInfo);
     vk::MemoryRequirements memoryRequirements = device->getImageMemoryRequirements(*depthBuffer.image);
@@ -382,8 +363,13 @@ void etna::Renderer::initSharedUniformBuffer() {
     VmaAllocationCreateInfo allocInfo = {};
     allocInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
     allocInfo.requiredFlags = VkMemoryPropertyFlagBits::VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    vmaAllocateMemoryForBuffer(allocator, *sharedUniformBuffer, &allocInfo, &sharedUniformAllocation, nullptr);
-    vmaBindBufferMemory(allocator, sharedUniformAllocation, *sharedUniformBuffer);
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    VmaAllocationInfo allocationInfo = {};
+    VmaAllocation stagingAlloc;
+    vmaAllocateMemoryForBuffer(allocator.get(), *sharedUniformBuffer, &allocInfo, &stagingAlloc, &allocationInfo);
+    sharedUboMappedMemory = reinterpret_cast<std::byte*>(allocationInfo.pMappedData);
+    sharedUniformAllocation.reset(allocator.get(), stagingAlloc);
+    vmaBindBufferMemory(allocator.get(), sharedUniformAllocation, *sharedUniformBuffer);
     sharedBufferInfo.buffer = *sharedUniformBuffer;
     sharedBufferInfo.offset = 0;
     sharedBufferInfo.range = VK_WHOLE_SIZE;
@@ -421,52 +407,24 @@ void etna::Renderer::updateUniformBuffer() {
 }
 
 void etna::Renderer::updateUniformBuffers() {
-//    void *mem = nullptr;
-    void *sharedMem = nullptr;
-    vmaMapMemory(allocator, sharedUniformAllocation, &sharedMem);
-
     for (const auto& obj: sceneObjects) {
-//        mem = device->mapMemory(*obj.uboMemory, 0, VK_WHOLE_SIZE, {});
-//        auto& objUniform = *reinterpret_cast<UniformBuffer*>(mem);
-        auto& sharedObjUniform = *reinterpret_cast<UniformBuffer*>(static_cast<std::byte*>(sharedMem) + obj.uniformBufferOffset);
+
+        auto& objUbo = *reinterpret_cast<UniformBuffer*>(sharedUboMappedMemory + obj.uniformBufferOffset);
         const auto& M = glm::translate(glm::scale(glm::mat4(1.f), obj.scale), obj.position) * glm::eulerAngleXYX(
                     glm::radians(obj.rotation.x),
                     glm::radians(obj.rotation.y),
                     glm::radians(obj.rotation.z)
                     );
 
-        sharedObjUniform.mvp /*= objUniform.mvp */= world.P * world.V * M;
-//        device->unmapMemory(*obj.uboMemory);
+        objUbo.mvp = world.P * world.V * M;
     }
-    vmaUnmapMemory(allocator, sharedUniformAllocation);
 }
 
 void etna::Renderer::initPipelineLayout() {
-    // So this doesn't work
-    //    vk::DescriptorSetLayoutBinding layoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex);
-    //    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo({}, 1, &layoutBinding);
-    //    descSetLayout = device->createDescriptorSetLayoutUnique(descriptorLayoutInfo);
-    //    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, 1, &*descSetLayout);
-
-    // While this does?!
-    vk::DescriptorSetLayoutBinding layoutBinding(
-                0, vk::DescriptorType::eUniformBufferDynamic,
-                1,
-                vk::ShaderStageFlags(vk::ShaderStageFlagBits::eVertex),
-                nullptr
-                );
-    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo(
-                vk::DescriptorSetLayoutCreateFlags(),
-                1, &layoutBinding
-                );
-
+    vk::DescriptorSetLayoutBinding layoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex);
+    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo({}, 1, &layoutBinding);
     descSetLayout = device->createDescriptorSetLayoutUnique(descriptorLayoutInfo);
-
-    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo(
-                vk::PipelineLayoutCreateFlags(),
-                1, &*descSetLayout, 0, nullptr
-                );
-
+    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, 1, &*descSetLayout);
     pipelineLayout = device->createPipelineLayoutUnique(pipelineLayoutCreateInfo);
 }
 
@@ -484,32 +442,15 @@ void etna::Renderer::initDescriptorPool() {
         vk::DescriptorPoolSize(vk::DescriptorType::eStorageBufferDynamic, 1000),
         vk::DescriptorPoolSize(vk::DescriptorType::eInputAttachment, 1000)
     };
-
-    vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo(
-                {},
-                1000 * descPoolSizes.size(), descPoolSizes.size(), descPoolSizes.data()
-                );
-
+    vk::DescriptorPoolCreateInfo descriptorPoolCreateInfo({},1000 * descPoolSizes.size(), descPoolSizes.size(), descPoolSizes.data());
     descriptorPool = device->createDescriptorPoolUnique(descriptorPoolCreateInfo);
 }
 
 void etna::Renderer::initSharedDescriptorSet() {
-    vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(
-                *descriptorPool, 1, &*descSetLayout
-                );
-
+    vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(*descriptorPool, 1, &*descSetLayout);
     sharedDescriptorSet = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
-
-    vk::WriteDescriptorSet write(
-                sharedDescriptorSet,
-                0, 0,
-                1, vk::DescriptorType::eUniformBufferDynamic,
-                nullptr,
-                &sharedBufferInfo,
-                nullptr
-                );
+    vk::WriteDescriptorSet write(sharedDescriptorSet, 0, 0, 1, vk::DescriptorType::eUniformBufferDynamic, nullptr, &sharedBufferInfo, nullptr);
     device->updateDescriptorSets(1, &write, 0, nullptr);
-
 }
 
 void etna::Renderer::initRenderPass() {
@@ -966,8 +907,10 @@ void etna::Renderer::buildGui() {
     ImGui::Text("current window size: %dx%d", w, h);
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
 
+    vmaCalculateStats(allocator.get(), &vmaStats);
+    ImGui::Text("%ldMb of GPU memory used", vmaStats.total.usedBytes / 8 / 8);
+
     ImGui::End();
-    ImGui::ShowDemoWindow();
 
     ImGui::Render();
 }
