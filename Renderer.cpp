@@ -777,6 +777,7 @@ void etna::Renderer::initCubeVertexBuffers() {
         meshObj.vertexBuffer = *mesh.vertexBuffer;
         meshObj.bufferStart = coordinatesObj.numVerts + coordinatesObj.bufferStart;
         meshObj.numVerts = vertices.size();
+        meshObj.visible = true;
         meshObj.name = "viking_room";
 
         sceneObjects.emplace_back(std::move(meshObj));
@@ -922,15 +923,29 @@ void etna::Renderer::buildGui() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    ImGui::Begin("Cube properties");
+    ImGui::Begin("Scene");
+    for (int ix = 0; ix < std::ssize(sceneObjects); ++ix) {
+        auto& obj = sceneObjects[ix];
+        uint32_t flags = ImGuiTreeNodeFlags_Leaf;
+        if (selectedSceneNode == ix) {
+            flags |= ImGuiTreeNodeFlags_Selected;
+        }
 
-    ImGui::DragFloat("pos x", &mesh.pos.x, .1f);
-    ImGui::DragFloat("pos y", &mesh.pos.y, .1f);
-    ImGui::DragFloat("pos z", &mesh.pos.z, .1f);
+        ImGui::TreeNodeEx(obj.name.c_str(), flags);
+        if (ImGui::IsItemClicked()) {
+            selectedSceneNode = ix;
+        }
 
-    ImGui::DragFloat("rot x", &mesh.rotation.x, .1f, -360.f, 360.0f);
-    ImGui::DragFloat("rot y", &mesh.rotation.y, .1f, -360.f, 360.0f);
-    ImGui::DragFloat("rot z", &mesh.rotation.z, .1f, -360.f, 360.0f);
+        ImGui::TreePop();
+    }
+
+    if (selectedSceneNode >= 0) {
+        auto& obj = sceneObjects[selectedSceneNode];
+        ImGui::DragFloat3("Position", &obj.position[0], .1f);
+        ImGui::DragFloat3("Rotation", &obj.rotation[0], .1f, -360.f, 360.0f);
+        ImGui::DragFloat3("Scale",    &obj.scale[0], .1f, 1.f, .0f);
+        ImGui::Checkbox("Visible", &obj.visible);
+    }
 
     ImGui::End();
 
@@ -940,13 +955,8 @@ void etna::Renderer::buildGui() {
     ImGui::DragFloat("nearPlane", &camera.zNear, .1f, 1.f, 100.f);
     ImGui::DragFloat("farPlane", &camera.zFar, .1f, 10.f, 1000000.f);
 
-    ImGui::DragFloat("pos x", &camera.pos.x, .1f);
-    ImGui::DragFloat("pos y", &camera.pos.y, .1f);
-    ImGui::DragFloat("pos z", &camera.pos.z, .1f);
-
-    ImGui::DragFloat("yaw",   &camera.rotation.x, .1f, -360.f, 360.0f);
-    ImGui::DragFloat("pitch", &camera.rotation.y, .1f, -360.f, 360.0f);
-    ImGui::DragFloat("roll",  &camera.rotation.z, .1f, -360.f, 360.0f);
+    ImGui::DragFloat3("Position", &camera.pos[0], .1f);
+    ImGui::DragFloat3("Rotation", &camera.rotation[0], .1f, -360.f, 360.0f);
     ImGui::End();
 
 
@@ -995,7 +1005,6 @@ void etna::Renderer::draw() {
     };
 
     vkResetCommandPool(*device, *commandPool, 0);
-
     updateUniformBuffer();
 
     vk::SemaphoreCreateInfo semaphoreCreateInfo;
@@ -1017,8 +1026,6 @@ void etna::Renderer::draw() {
     commandBuffers[0]->beginRenderPass(renderPassBeginInfo, vk::SubpassContents::eInline);
 
     const vk::DeviceSize offset(0);
-    //    const auto rawCubeDescSets = vk::uniqueToRaw(cubeDscriptorSets);
-    //    const auto rawGridDescSets = vk::uniqueToRaw(gridDescriptorSets);
     vk::Viewport viewport;
     viewport.width = surfaceCapabilities.currentExtent.width;
     viewport.height = surfaceCapabilities.currentExtent.height;
@@ -1035,9 +1042,11 @@ void etna::Renderer::draw() {
     commandBuffers[0]->bindVertexBuffers( 0, 1, &*mesh.vertexBuffer, &offset);
 
     for (const auto& object: sceneObjects) {
-        commandBuffers[0]->setPrimitiveTopologyEXT(object.topology, dldi);
-        commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, 1, &sharedDescriptorSet, 1, &object.uniformBufferOffset);
-        commandBuffers[0]->draw(object.numVerts, 1, object.bufferStart, 0);
+        if (object.visible) {
+            commandBuffers[0]->setPrimitiveTopologyEXT(object.topology, dldi);
+            commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, 1, &sharedDescriptorSet, 1, &object.uniformBufferOffset);
+            commandBuffers[0]->draw(object.numVerts, 1, object.bufferStart, 0);
+        }
     }
 
     commandBuffers[0]->endRenderPass();
@@ -1047,8 +1056,6 @@ void etna::Renderer::draw() {
     beginRecordCommandBuffer(1);
     commandBuffers[1]->setViewport(0, 1, &viewport);
     commandBuffers[1]->setScissor(0, 1, &scissor);
-
-    buildGui();
 
     vk::RenderPassBeginInfo guiRenderPassBeginInfo(
                 *guiRenderPass,

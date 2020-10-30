@@ -167,6 +167,7 @@ namespace etna {
         } camera;
         GLFWwindow *_window = nullptr;
 
+        int selectedSceneNode = -1;
         std::vector<vk::UniqueFramebuffer> framebuffers;
         std::vector<vk::UniqueFramebuffer> guiFramebuffers;
         vk::UniqueRenderPass guiRenderPass;

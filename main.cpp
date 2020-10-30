@@ -139,6 +139,7 @@ int main(int, char**) {
                 }
                 glfwPollEvents();
             }
+            vulkan.buildGui();
             vulkan.draw();
         }
     } catch (const std::exception& e) {
