@@ -89,30 +89,24 @@ void etna::Renderer::initialize(GLFWwindow* window) {
 }
 
 
-VkBool32 vulkanDebugCallback(   VkDebugUtilsMessageSeverityFlagBitsEXT           messageSeverity,
-                                VkDebugUtilsMessageTypeFlagsEXT                  /*messageTypes*/,
-                                const VkDebugUtilsMessengerCallbackDataEXT*      pCallbackData,
-                                void*                                            /*pUserData*/) {
-    try {
-        switch(messageSeverity) {
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-            spdlog::error("{}:{}", pCallbackData->pMessageIdName, pCallbackData->pMessage);
-            break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-            spdlog::warn("{}:{}", pCallbackData->pMessageIdName, pCallbackData->pMessage);
-            break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-            spdlog::info("{}:{}", pCallbackData->pMessageIdName, pCallbackData->pMessage);
-            break;
-        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-            spdlog::trace("{}:{}", pCallbackData->pMessageIdName, pCallbackData->pMessage);
-            break;
-        default: break;
-        }
-    } catch (const std::exception& e) {
-        spdlog::error(e.what());
-    } catch (...) {
-        spdlog::error("Unrecognized exception");
+VkBool32 vulkanDebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT      messageSeverity,
+                             VkDebugUtilsMessageTypeFlagsEXT             /*messageTypes*/,
+                             const VkDebugUtilsMessengerCallbackDataEXT* cbData,
+                             void*                                       /*userData*/) {
+    switch(messageSeverity) {
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+        spdlog::error("{}:{}", cbData->pMessageIdName, cbData->pMessage);
+        break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+        spdlog::warn("{}:{}", cbData->pMessageIdName, cbData->pMessage);
+        break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+        spdlog::info("{}:{}", cbData->pMessageIdName, cbData->pMessage);
+        break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+        spdlog::trace("{}:{}", cbData->pMessageIdName, cbData->pMessage);
+        break;
+    default: break;
     }
     return VK_FALSE;
 }
@@ -387,7 +381,7 @@ void etna::Renderer::updateUniformBuffers() {
     for (const auto& obj: sceneObjects) {
 
         auto& objUbo = *reinterpret_cast<UniformBuffer*>(sharedUboMappedMemory + obj.uniformBufferOffset);
-        const auto& M = glm::translate(glm::scale(glm::mat4(1.f), obj.scale), obj.position) * glm::eulerAngleXYX(
+        const auto& M = glm::translate(glm::scale(glm::mat4(1.f), obj.scale), obj.position) * glm::eulerAngleXYZ(
                     glm::radians(obj.rotation.x),
                     glm::radians(obj.rotation.y),
                     glm::radians(obj.rotation.z)
