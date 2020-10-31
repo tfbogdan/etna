@@ -384,7 +384,23 @@ void etna::Renderer::initSharedUniformBuffer() {
 
     for (int ix = 0; ix < std::ssize(sceneObjects); ++ix) {
         auto& obj = sceneObjects[ix];
+
+        vk::DescriptorImageInfo descImageInfo(*textureSampler, *obj.textureView, vk::ImageLayout::eShaderReadOnlyOptimal);
+        vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(*descriptorPool, 1, &*descSetLayout);
+        obj.samplerDescriptor = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
+
+        vk::DescriptorBufferInfo sharedBufferInfo;
+        sharedBufferInfo.buffer = *sharedUniformBuffer;
+        sharedBufferInfo.offset = ix * dynamicAlignment;
+        sharedBufferInfo.range = sizeof(UniformBuffer);
         obj.uniformBufferOffset = ix * dynamicAlignment;
+
+        std::array writes{
+            vk::WriteDescriptorSet(obj.samplerDescriptor, 0, 0, 1, vk::DescriptorType::eUniformBufferDynamic, nullptr, &sharedBufferInfo, nullptr),
+            vk::WriteDescriptorSet(obj.samplerDescriptor, 1, 0, 1, vk::DescriptorType::eCombinedImageSampler, &descImageInfo, nullptr, nullptr)
+        };
+        device->updateDescriptorSets(writes, {});
+
     }
 }
 
@@ -743,21 +759,6 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
     obj.textureAllocation.reset(allocator.get(), stagingImageAlloc);
 
     vmaDestroyBuffer(allocator.get(), stagingBuffer, stagingAlloc);
-
-    vk::DescriptorImageInfo descImageInfo(*textureSampler, *obj.textureView, vk::ImageLayout::eShaderReadOnlyOptimal);
-    vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(*descriptorPool, 1, &*descSetLayout);
-    obj.samplerDescriptor = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
-
-    vk::DescriptorBufferInfo sharedBufferInfo;
-    sharedBufferInfo.buffer = *sharedUniformBuffer;
-    sharedBufferInfo.offset = 0;
-    sharedBufferInfo.range = VK_WHOLE_SIZE;
-
-    std::array writes {
-        vk::WriteDescriptorSet(obj.samplerDescriptor, 0, 0, 1, vk::DescriptorType::eUniformBufferDynamic, nullptr, &sharedBufferInfo, nullptr),
-        vk::WriteDescriptorSet(obj.samplerDescriptor, 1, 0, 1, vk::DescriptorType::eCombinedImageSampler, &descImageInfo, nullptr, nullptr)
-    };
-    device->updateDescriptorSets(writes, {});
 }
 
 void etna::Renderer::spawnCube() {
