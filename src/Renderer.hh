@@ -5,9 +5,8 @@
 #include <glm/glm.hpp>
 #include <imgui/imgui.h>
 
-#include <GLFW/glfw3.h>
-
 #include <VulkanMemoryAllocator/vk_mem_alloc.h>
+#include <GLFW/glfw3.h>
 
 namespace etna {
 
@@ -72,7 +71,7 @@ namespace etna {
         }
     private:
         void clear() {
-            if (_allocator and _allocation) {
+            if (_allocator && _allocation) {
                 vmaFreeMemory(_allocator, _allocation);
                 _allocator = nullptr;
                 _allocation = nullptr;
@@ -94,6 +93,7 @@ namespace etna {
     class Renderer {
     public:
         Renderer() = default;
+        ~Renderer();
 
         void initialize(GLFWwindow* window);
 

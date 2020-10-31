@@ -22,10 +22,8 @@
 #include <tinyobjloader/tiny_obj_loader.h>
 
 constexpr std::array instanceExtensions = {
-    VK_KHR_DISPLAY_EXTENSION_NAME,
     VK_KHR_SURFACE_EXTENSION_NAME,
-    VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
-    VK_EXT_DEBUG_REPORT_EXTENSION_NAME
+    VK_EXT_DEBUG_UTILS_EXTENSION_NAME
 };
 
 constexpr std::array deviceExtensions = {
@@ -36,6 +34,12 @@ constexpr std::array deviceExtensions = {
 constexpr std::array validationLayers = {
     "VK_LAYER_KHRONOS_validation"
 };
+
+etna::Renderer::~Renderer() {
+    ImGui_ImplVulkan_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
+}
 
 void etna::Renderer::initialize(GLFWwindow* window) {
     _window = window;
@@ -182,21 +186,21 @@ void etna::Renderer::initDevice() {
                 queueFamily,
                 1, queue_priorities);
 
-    vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT dynamicStateFeatures;
-    dynamicStateFeatures.extendedDynamicState = true;
+    vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT dynamicStateFeatures = {};
+    dynamicStateFeatures.setExtendedDynamicState(true);
 
-    vk::PhysicalDeviceFeatures deviceFeatures;
+    vk::PhysicalDeviceFeatures deviceFeatures = {};
     deviceFeatures.sampleRateShading = true;
 
     vk::DeviceCreateInfo deviceInfo(
-                vk::DeviceCreateFlags(),
+                {},
                 1, &queueInfo,
                 validationLayers.size(), validationLayers.data(),
                 deviceExtensions.size(), deviceExtensions.data(),
                 &deviceFeatures
                 );
+    deviceInfo.pNext = &dynamicStateFeatures;
 
-    deviceInfo.pNext = &deviceFeatures;
     vk::PhysicalDeviceDriverProperties driverProps;
     vk::PhysicalDeviceProperties2 props2;
     props2.pNext = &driverProps;
@@ -262,7 +266,7 @@ void etna::Renderer::initCommandBuffer() {
 void etna::Renderer::initSwapchain() {
     vk::SwapchainCreateInfoKHR swapchainInfo;
     swapchainInfo.surface               = *wndSurface;
-    swapchainInfo.minImageCount         = surfaceCapabilities.minImageCount;
+    swapchainInfo.minImageCount         = std::max(2u, surfaceCapabilities.minImageCount);
     swapchainInfo.imageFormat           = vk::Format::eB8G8R8A8Unorm;
     swapchainInfo.imageColorSpace       = vk::ColorSpaceKHR::eSrgbNonlinear;
     swapchainInfo.imageExtent           = surfaceCapabilities.currentExtent;
@@ -425,15 +429,15 @@ void etna::Renderer::initSharedDescriptorSet() {
 
 void etna::Renderer::initRenderPass() {
     std::array attachmentDescriptions {
-        vk::AttachmentDescription(vk::AttachmentDescriptionFlags(), vk::Format::eB8G8R8A8Unorm, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal),
-                vk::AttachmentDescription(vk::AttachmentDescriptionFlags(), depthBuffer.format, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eDontCare, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal),
-                vk::AttachmentDescription(vk::AttachmentDescriptionFlags(), vk::Format::eB8G8R8A8Unorm, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::ePresentSrcKHR)
+        vk::AttachmentDescription({}, vk::Format::eB8G8R8A8Unorm, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal),
+        vk::AttachmentDescription({}, depthBuffer.format, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eDontCare, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal),
+        vk::AttachmentDescription({}, vk::Format::eB8G8R8A8Unorm, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal)
     };
 
-    vk::AttachmentReference colorReference(0, vk::ImageLayout::eColorAttachmentOptimal);
-    vk::AttachmentReference depthReference(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
     vk::AttachmentReference resolvReference(2, vk::ImageLayout::eColorAttachmentOptimal);
-
+    vk::AttachmentReference depthReference(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
+    vk::AttachmentReference colorReference(0, vk::ImageLayout::eColorAttachmentOptimal);
+    
     vk::SubpassDescription subpassDescription(
                 vk::SubpassDescriptionFlags(),
                 vk::PipelineBindPoint::eGraphics,
@@ -453,7 +457,7 @@ void etna::Renderer::initRenderPass() {
 }
 
 void etna::Renderer::initGuiRenderPass() {
-    std::array attachmentDescriptions {vk::AttachmentDescription(vk::AttachmentDescriptionFlags(), vk::Format::eB8G8R8A8Unorm, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR)};
+    std::array attachmentDescriptions {vk::AttachmentDescription(vk::AttachmentDescriptionFlags(), vk::Format::eB8G8R8A8Unorm, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eLoad, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eColorAttachmentOptimal, vk::ImageLayout::ePresentSrcKHR)};
 
     vk::AttachmentReference colorReference(0, vk::ImageLayout::eColorAttachmentOptimal);
 
@@ -501,7 +505,7 @@ void etna::Renderer::initFramebuffers() {
     framebuffers.clear();
     for (uint32_t idx(0); idx < swapchainImages.size(); ++idx) {
         spdlog::trace("Creating framebuffer {}:", idx);
-        std::array attachments { *resolveBuffer.imageView, *depthBuffer.imageView,*swapchainImageViews[idx]};
+        std::array attachments { *resolveBuffer.imageView, *depthBuffer.imageView, *swapchainImageViews[idx] };
 
         vk::FramebufferCreateInfo framebufferCreateInfo(
                     vk::FramebufferCreateFlags(),
@@ -520,9 +524,7 @@ void etna::Renderer::initGuiFramebuffers() {
     guiFramebuffers.clear();
     for (uint32_t idx(0); idx < swapchainImages.size(); ++idx) {
         spdlog::trace("Creating framebuffer {}:", idx);
-        std::array attachments {
-            *swapchainImageViews[idx]
-        };
+        std::array attachments {*swapchainImageViews[idx]};
 
         vk::FramebufferCreateInfo framebufferCreateInfo(
                     vk::FramebufferCreateFlags(),
@@ -689,7 +691,7 @@ void etna::Renderer::initCubeVertexBuffers() {
         SceneObject meshObj;
         meshObj.vertexBuffer = *vertexBuffer;
         meshObj.bufferStart = coordinatesObj.numVerts + coordinatesObj.bufferStart;
-        meshObj.numVerts = vertices.size();
+        meshObj.numVerts = std::ssize(vertices);
         meshObj.visible = true;
         meshObj.name = "viking_room";
 
@@ -715,7 +717,7 @@ void etna::Renderer::initPipeline() {
     std::array dynamicStates = {
         vk::DynamicState::eViewport,
         vk::DynamicState::eScissor,
-        vk::DynamicState::ePrimitiveTopologyEXT
+        /* vk::DynamicState::ePrimitiveTopologyEXT */
     };
     vk::PipelineDynamicStateCreateInfo dynamicStateInfo;
     dynamicStateInfo.dynamicStateCount = dynamicStates.size();
@@ -728,6 +730,7 @@ void etna::Renderer::initPipeline() {
     pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = viAttribs.data();
 
     vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo;
+    pipelineInputAssemblyStateCreateInfo.setTopology(vk::PrimitiveTopology::eTriangleList);
 
     vk::PipelineRasterizationStateCreateInfo pipelineRasterizationStateCreateInfo(
                 vk::PipelineRasterizationStateCreateFlags(),
@@ -755,7 +758,11 @@ void etna::Renderer::initPipeline() {
     pipelineColorBlendStateCreateInfo.blendConstants[2] = 1.f;
     pipelineColorBlendStateCreateInfo.blendConstants[3] = 1.f;
 
+    std::array vps = { vk::Viewport{} };
+    std::array scissors = { vk::Rect2D{} };
     vk::PipelineViewportStateCreateInfo pipelineViewportStateCreateInfo;
+    pipelineViewportStateCreateInfo.setViewports(vps);
+    pipelineViewportStateCreateInfo.setScissors(scissors);
 
     vk::PipelineDepthStencilStateCreateInfo pipelineDepthStencilCreateInfo;
     pipelineDepthStencilCreateInfo.depthTestEnable = true;
@@ -816,7 +823,7 @@ void etna::Renderer::initGui() {
     imguiInitInfo.DescriptorPool = *descriptorPool;
     imguiInitInfo.Allocator = nullptr;
 
-    imguiInitInfo.MinImageCount = surfaceCapabilities.minImageCount;
+    imguiInitInfo.MinImageCount = std::max(2u, surfaceCapabilities.minImageCount);
     imguiInitInfo.ImageCount = swapchainImageViews.size();
 
     imguiInitInfo.CheckVkResultFn = nullptr;
@@ -957,7 +964,8 @@ void etna::Renderer::draw() {
 
     for (const auto& object: sceneObjects) {
         if (object.visible) {
-            commandBuffers[0]->setPrimitiveTopologyEXT(object.topology, dldi);
+            // commandBuffers[0]->setPrimitiveTopologyEXT(object.topology, dldi);
+            
             commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, 1, &sharedDescriptorSet, 1, &object.uniformBufferOffset);
             commandBuffers[0]->draw(object.numVerts, 1, object.bufferStart, 0);
         }
