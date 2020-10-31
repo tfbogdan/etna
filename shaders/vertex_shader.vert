@@ -7,11 +7,12 @@ layout (std140, binding = 0) uniform bufferValsDynamic {
 } transform;
 
 
-layout (location = 0) in vec3 pos;
-layout (location = 1) in vec4 inColor;
-layout (location = 0) out vec4 outColor;
+layout (location = 0) in vec3 displacement;
+layout (location = 1) in vec2 inUv;
+
+layout (location = 0) out vec2 outUv;
 
 void main() {
-   gl_Position = transform.mvp * vec4(pos, 1.);
-   outColor = inColor;
+   gl_Position = transform.mvp * vec4(displacement, 1.);
+   outUv = inUv;
 }

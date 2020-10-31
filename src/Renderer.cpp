@@ -15,9 +15,11 @@
 #include <shaders/fragment_shader.h>
 
 #include <chrono>
+#include <filesystem>
 
 #include <imgui/imgui_impl_vulkan.h>
 #include <imgui/imgui_impl_glfw.h>
+#include <stb/stb_image.h>
 
 #include <tinyobjloader/tiny_obj_loader.h>
 
@@ -51,6 +53,8 @@ void etna::Renderer::initialize(GLFWwindow* window) {
 
     spdlog::debug("initDevice");
     initDevice();
+
+    initSampler();
 
     spdlog::debug("initCommandBuffer");
     initCommandBuffer();
@@ -149,6 +153,52 @@ void etna::Renderer::createInstance() {
     gpu = gpus[0];
 }
 
+void etna::Renderer::transitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
+    immediateCommandBuffer([image, oldLayout, newLayout] (auto commandBuffer){
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = newLayout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+
+        VkPipelineStageFlags sourceStage;
+        VkPipelineStageFlags destinationStage;
+
+        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+        } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+            sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        } else {
+            throw std::invalid_argument("unsupported layout transition!");
+        }
+
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            sourceStage, destinationStage,
+            0,
+            0, nullptr,
+            0, nullptr,
+            1, &barrier
+        );
+    });
+
+}
+
 void etna::Renderer::recreateSwapChain() {
     device->waitIdle();
 
@@ -187,6 +237,7 @@ void etna::Renderer::initDevice() {
 
     vk::PhysicalDeviceFeatures deviceFeatures = {};
     deviceFeatures.sampleRateShading = true;
+    deviceFeatures.samplerAnisotropy = true;
 
     vk::DeviceCreateInfo deviceInfo(
                 {},
@@ -389,8 +440,12 @@ void etna::Renderer::updateUniformBuffers() {
 }
 
 void etna::Renderer::initPipelineLayout() {
-    vk::DescriptorSetLayoutBinding layoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex);
-    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo({}, 1, &layoutBinding);
+    std::array layoutBindings = {
+        vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex),
+        vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eFragment),
+    };
+    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo;
+    descriptorLayoutInfo.setBindings(layoutBindings);
     descSetLayout = device->createDescriptorSetLayoutUnique(descriptorLayoutInfo);
     vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, 1, &*descSetLayout);
     pipelineLayout = device->createPipelineLayoutUnique(pipelineLayoutCreateInfo);
@@ -424,8 +479,8 @@ void etna::Renderer::initSharedDescriptorSet() {
 void etna::Renderer::initRenderPass() {
     std::array attachmentDescriptions {
         vk::AttachmentDescription({}, vk::Format::eB8G8R8A8Unorm, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal),
-        vk::AttachmentDescription({}, depthBuffer.format, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eDontCare, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal),
-        vk::AttachmentDescription({}, vk::Format::eB8G8R8A8Unorm, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal)
+                vk::AttachmentDescription({}, depthBuffer.format, getMaxUsableSampleCount(), vk::AttachmentLoadOp::eClear, vk::AttachmentStoreOp::eDontCare, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eDepthStencilAttachmentOptimal),
+                vk::AttachmentDescription({}, vk::Format::eB8G8R8A8Unorm, vk::SampleCountFlagBits::e1, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eStore, vk::AttachmentLoadOp::eDontCare, vk::AttachmentStoreOp::eDontCare, vk::ImageLayout::eUndefined, vk::ImageLayout::eColorAttachmentOptimal)
     };
 
     vk::AttachmentReference resolvReference(2, vk::ImageLayout::eColorAttachmentOptimal);
@@ -537,11 +592,11 @@ void etna::Renderer::initGuiFramebuffers() {
 // colors per face:
 constexpr std::array faceColors {
     glm::vec4(1.f, 0.f, 0.f, 1.f),
-    glm::vec4(0.f, 1.f, 0.f, 1.f),
-    glm::vec4(0.f, 0.f, 1.f, 1.f),
-    glm::vec4(1.f, 1.f, 0.f, 1.f),
-    glm::vec4(1.f, 0.f, 1.f, 1.f),
-    glm::vec4(0.f, 1.f, 1.f, 1.f)
+            glm::vec4(0.f, 1.f, 0.f, 1.f),
+            glm::vec4(0.f, 0.f, 1.f, 1.f),
+            glm::vec4(1.f, 1.f, 0.f, 1.f),
+            glm::vec4(1.f, 0.f, 1.f, 1.f),
+            glm::vec4(0.f, 1.f, 1.f, 1.f)
 };
 
 void etna::Renderer::initScene() {
@@ -551,9 +606,26 @@ void etna::Renderer::initScene() {
     }
 }
 
+void etna::Renderer::initSampler() {
+    vk::SamplerCreateInfo samplerCreate;
+    samplerCreate.magFilter = vk::Filter::eLinear;
+    samplerCreate.minFilter = vk::Filter::eLinear;
+    samplerCreate.addressModeU = vk::SamplerAddressMode::eRepeat;
+    samplerCreate.addressModeV = vk::SamplerAddressMode::eRepeat;
+    samplerCreate.addressModeW = vk::SamplerAddressMode::eRepeat;
+    samplerCreate.anisotropyEnable = true;
+    samplerCreate.maxAnisotropy = 12.f;
+    samplerCreate.borderColor = vk::BorderColor::eIntOpaqueBlack;
+    samplerCreate.unnormalizedCoordinates = false;
+    samplerCreate.compareEnable = false;
+    samplerCreate.compareOp = vk::CompareOp::eAlways;
+    samplerCreate.mipmapMode = vk::SamplerMipmapMode::eLinear;
+    textureSampler = device->createSamplerUnique(samplerCreate);
+}
+
 void etna::Renderer::loadObj(const std::filesystem::path &path) {
     assert(std::filesystem::exists(path));
-    std::vector<etna::ColoredVertex> vertices;
+    std::vector<etna::TexturedVertex> vertices;
     tinyobj::attrib_t attrib;
     std::vector<tinyobj::shape_t> shapes;
     std::vector<tinyobj::material_t> materials;
@@ -566,7 +638,7 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
 
     for (const auto& shape : shapes) {
         for ([[maybe_unused]]const auto& index : shape.mesh.indices) {
-            ColoredVertex vertex{};
+            TexturedVertex vertex{};
 
             vertex.displacement = {
                 attrib.vertices[3 * index.vertex_index + 2] * 5,
@@ -574,12 +646,16 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
                 attrib.vertices[3 * index.vertex_index + 0] * 5
             };
 
-            vertex.color = {1.f, 1.f, 1.f, 1.f};
+            vertex.uv = {
+                attrib.texcoords[2 * index.texcoord_index + 0],
+                1.f - attrib.texcoords[2 * index.texcoord_index + 1]
+            };
+
             vertices.push_back(vertex);
         }
     }
 
-    vk::BufferCreateInfo bufferCreateInfo( {}, sizeof(ColoredVertex) * vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
+    vk::BufferCreateInfo bufferCreateInfo( {}, sizeof(TexturedVertex) * vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
 
     VmaAllocationCreateInfo allocCreateInfo = {};
     allocCreateInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
@@ -589,15 +665,15 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
     std::byte *vMem;
 
     vmaMapMemory(allocator.get(), stagingAlloc, reinterpret_cast<void**>(&vMem));
-    memcpy(vMem, vertices.data(), sizeof(ColoredVertex) * vertices.size());
+    memcpy(vMem, vertices.data(), sizeof(TexturedVertex) * vertices.size());
     vmaUnmapMemory(allocator.get(), stagingAlloc);
 
     viBindings.binding = 0;
     viBindings.inputRate = vk::VertexInputRate::eVertex;
-    viBindings.stride = sizeof(ColoredVertex);
+    viBindings.stride = sizeof(TexturedVertex);
 
     viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat, 0);
-    viAttribs.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(struct ColoredVertex, color));
+    viAttribs.emplace_back(1, 0, vk::Format::eR32G32Sfloat, offsetof(struct TexturedVertex, uv));
 
     SceneObject meshObj;
     meshObj.vertexBuffer = vk::UniqueBuffer(stagingBuffer, *device);
@@ -608,7 +684,77 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
     meshObj.visible = true;
     meshObj.name = path.filename();
 
+    auto imagePath = path;
+    imagePath.replace_extension(".png");
+    loadTexture(imagePath.c_str(), meshObj);
+
     sceneObjects.emplace_back(std::move(meshObj));
+}
+
+void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneObject &obj) {
+    assert(std::filesystem::exists(path));
+    int w, h, channels;
+    stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+
+    VkBuffer stagingBuffer;
+    VmaAllocation stagingAlloc;
+    vk::BufferCreateInfo bufferCreate; bufferCreate
+            .setUsage(vk::BufferUsageFlagBits::eTransferSrc)
+            .setSize(w * h * 4);
+    VmaAllocationCreateInfo bufferAlloc = {};
+    bufferAlloc.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+    bufferAlloc.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    VmaAllocationInfo allocInfo = {};
+    vmaCreateBuffer(allocator.get(), &static_cast<VkBufferCreateInfo&>(bufferCreate), &bufferAlloc, &stagingBuffer, &stagingAlloc, &allocInfo);
+    memcpy(allocInfo.pMappedData, pixels, w * h * 4);
+
+    VkImage stagingImage;
+    VmaAllocation stagingImageAlloc;
+    VmaAllocationCreateInfo imageAllocInfo = {};
+    imageAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    vk::ImageCreateInfo imageCreate; imageCreate
+            .setFormat(vk::Format::eR8G8B8A8Srgb)
+            .setUsage(vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled)
+            .setTiling(vk::ImageTiling::eOptimal)
+            .setImageType(vk::ImageType::e2D)
+            .setSamples(vk::SampleCountFlagBits::e1)
+            .setSharingMode(vk::SharingMode::eExclusive)
+            .setMipLevels(1)
+            .setArrayLayers(1)
+            .setExtent(vk::Extent3D(w, h, 1));
+
+    vmaCreateImage(allocator.get(), &static_cast<VkImageCreateInfo&>(imageCreate), &imageAllocInfo, &stagingImage, &stagingImageAlloc, nullptr);
+    transitionImageLayout(stagingImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    immediateCommandBuffer([w, h, stagingBuffer ,stagingImage](auto commandBuffer){
+        vk::BufferImageCopy imgCopy; imgCopy
+                .setImageExtent(vk::Extent3D(w, h, 1));
+                imgCopy.imageSubresource.setAspectMask(vk::ImageAspectFlagBits::eColor)
+                        .setLayerCount(1);
+        commandBuffer.copyBufferToImage(stagingBuffer, stagingImage, vk::ImageLayout::eTransferDstOptimal, std::array{imgCopy});
+    });
+    transitionImageLayout(stagingImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vk::ImageViewCreateInfo imgViewInfo;
+    imgViewInfo
+            .setFormat(vk::Format::eR8G8B8A8Srgb)
+            .setViewType(vk::ImageViewType::e2D)
+            .setImage(stagingImage)
+            .subresourceRange
+                .setAspectMask(vk::ImageAspectFlagBits::eColor)
+                .setLevelCount(1)
+                .setLayerCount(1);
+    obj.textureView = device->createImageViewUnique(imgViewInfo);
+    obj.image = vk::UniqueImage(stagingImage, *device);
+    obj.textureAllocation.reset(allocator.get(), stagingImageAlloc);
+
+    vmaDestroyBuffer(allocator.get(), stagingBuffer, stagingAlloc);
+
+    vk::DescriptorImageInfo descImageInfo(*textureSampler, *obj.textureView, vk::ImageLayout::eShaderReadOnlyOptimal);
+    vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(*descriptorPool, 1, &*descSetLayout);
+    obj.samplerDescriptor = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
+    vk::WriteDescriptorSet write(obj.samplerDescriptor, 1, 0, 1, vk::DescriptorType::eSampler, &descImageInfo, nullptr, nullptr);
+    device->updateDescriptorSets(std::array{write}, {});
 }
 
 void etna::Renderer::spawnCube() {
@@ -833,7 +979,6 @@ void etna::Renderer::submitCommandBuffer(int index) {
 }
 
 void etna::Renderer::draw() {
-    spdlog::trace("Prepping clear values");
     std::array clearValues = {
         vk::ClearValue(vk::ClearColorValue()),
         vk::ClearValue(vk::ClearDepthStencilValue(1.f, 0)),
@@ -880,7 +1025,7 @@ void etna::Renderer::draw() {
         if (object.visible) {
             // commandBuffers[0]->setPrimitiveTopologyEXT(object.topology, dldi);
             commandBuffers[0]->bindVertexBuffers( 0, 1, &*object.vertexBuffer, &offset);
-            commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, 1, &sharedDescriptorSet, 1, &object.uniformBufferOffset);
+            commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, std::array{sharedDescriptorSet, object.samplerDescriptor}, std::array{object.uniformBufferOffset});
             commandBuffers[0]->draw(object.numVerts, 1, object.bufferStart, 0);
         }
     }

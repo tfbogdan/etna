@@ -63,9 +63,16 @@ namespace etna {
         glm::vec3 scale =    {1,1,1};
 
         bool visible = false;
+        // It is wrong to establish ownership of vertex buffers and textures at object level
+        // So this is all quite temporary but it does provide some convenience while
+        // other essential structural aspects are defined
         vk::UniqueBuffer vertexBuffer = {};
         UniqueVmaAllocation bufferAllocation = {};
-        vk::PrimitiveTopology topology = vk::PrimitiveTopology::eTriangleList;
+
+        vk::UniqueImage image = {};
+        vk::UniqueImageView textureView {};
+        UniqueVmaAllocation textureAllocation = {};
+        vk::DescriptorSet samplerDescriptor = {};
 
         int bufferStart = 0;
         int numVerts = 0;
@@ -100,6 +107,7 @@ namespace etna {
         void initDevice();
         void initSurface(GLFWwindow* window);
         void initCommandBuffer();
+
         void initSwapchain();
         void initDepthBuffer();
         void initSharedUniformBuffer();
@@ -114,7 +122,11 @@ namespace etna {
         void initFramebuffers();
         void initGuiFramebuffers();
         void initScene();
+        void initSampler();
+
         void loadObj(const std::filesystem::path& path);
+        void loadTexture(const std::filesystem::path& path, SceneObject& obj);
+
         void spawnCube();
 
         void initPipeline();
@@ -126,13 +138,32 @@ namespace etna {
         void beginRecordCommandBuffer(int);
         void endRecordCommandBuffer(int);
         void submitCommandBuffer(int);
+
         void draw();
 
         void recreateSwapChain();
     protected:
+        template<typename funcT>
+        void immediateCommandBuffer(funcT&& func) {
+            vk::CommandBufferAllocateInfo cmdBuffAlocInfo(*commandPool, vk::CommandBufferLevel::ePrimary, 1);
+            auto buffers = device->allocateCommandBuffersUnique(cmdBuffAlocInfo);
+            vk::CommandBufferBeginInfo buffBeginInfo;
+            buffBeginInfo.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
+            buffers.front()->begin(buffBeginInfo);
+            func(*buffers.front());
+            buffers.front()->end();
+
+            vk::SubmitInfo submitInfo;
+            submitInfo.setCommandBuffers(std::array{*buffers.front()});
+            queue.submit(std::array{submitInfo}, vk::Fence());
+            queue.waitIdle();
+        }
+
         vk::SampleCountFlagBits getMaxUsableSampleCount();
 
         void createInstance();
+
+        void transitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout);
 
         bool isNested() const;
 
@@ -198,6 +229,8 @@ namespace etna {
 
         vk::VertexInputBindingDescription viBindings;
         std::vector<vk::VertexInputAttributeDescription> viAttribs;
+
+        vk::UniqueSampler textureSampler;
 
         std::vector<SceneObject> sceneObjects;
         Camera camera;
