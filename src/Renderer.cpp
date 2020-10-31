@@ -27,8 +27,7 @@ constexpr std::array instanceExtensions = {
 };
 
 constexpr std::array deviceExtensions = {
-    VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-    VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME
+    VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
 
 constexpr std::array validationLayers = {
@@ -65,7 +64,7 @@ void etna::Renderer::initialize(GLFWwindow* window) {
     initDescriptorPool();
 
     spdlog::debug("initVertexBuffers");
-    initCubeVertexBuffers();
+    initScene();
 
     spdlog::debug("initUniformBuffer");
     initSharedUniformBuffer();
@@ -186,9 +185,6 @@ void etna::Renderer::initDevice() {
                 queueFamily,
                 1, queue_priorities);
 
-    vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT dynamicStateFeatures = {};
-    dynamicStateFeatures.setExtendedDynamicState(true);
-
     vk::PhysicalDeviceFeatures deviceFeatures = {};
     deviceFeatures.sampleRateShading = true;
 
@@ -199,8 +195,6 @@ void etna::Renderer::initDevice() {
                 deviceExtensions.size(), deviceExtensions.data(),
                 &deviceFeatures
                 );
-    deviceInfo.pNext = &dynamicStateFeatures;
-
     vk::PhysicalDeviceDriverProperties driverProps;
     vk::PhysicalDeviceProperties2 props2;
     props2.pNext = &driverProps;
@@ -437,7 +431,7 @@ void etna::Renderer::initRenderPass() {
     vk::AttachmentReference resolvReference(2, vk::ImageLayout::eColorAttachmentOptimal);
     vk::AttachmentReference depthReference(1, vk::ImageLayout::eDepthStencilAttachmentOptimal);
     vk::AttachmentReference colorReference(0, vk::ImageLayout::eColorAttachmentOptimal);
-    
+
     vk::SubpassDescription subpassDescription(
                 vk::SubpassDescriptionFlags(),
                 vk::PipelineBindPoint::eGraphics,
@@ -540,115 +534,53 @@ void etna::Renderer::initGuiFramebuffers() {
 
 }
 
-#define XYZ1(_x_, _y_, _z_) {(_x_), (_y_), (_z_), 1.f}
-constexpr std::array g_vb_solid_face_colors_Data {
-    // red face
-    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
-    // green face
-    etna::ColoredVertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
-    // blue face
-    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(0.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 0.f, 1.f) },
-    // yellow face
-    etna::ColoredVertex{ XYZ1(1, 1, 1), XYZ1(1.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(1.f, 1.f, 0.f) },
-    // magenta face
-    etna::ColoredVertex{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
-    // cyan face
-    etna::ColoredVertex{ XYZ1(1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
-
-    // Origin X axis, red
-    etna::ColoredVertex{ XYZ1(1000000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(-10000, 0, 0), XYZ1(1.f, 0.f, 0.f) },
-
-    // Origin Y axis, green
-    etna::ColoredVertex{ XYZ1(0, 1000000, 0), XYZ1(0.f, 1.f, 0.f) },
-    etna::ColoredVertex{ XYZ1(0, -1000000, 0), XYZ1(0.f, 1.f, 0.f) },
-
-    // Origin Y axis, blue
-    etna::ColoredVertex{ XYZ1(0, 0, 1000000), XYZ1(0.f, 0.f, 1.f) },
-    etna::ColoredVertex{ XYZ1(0, 0, -1000000), XYZ1(0.f, 0.f, 1.f) }
+// colors per face:
+constexpr std::array faceColors {
+    glm::vec4(1.f, 0.f, 0.f, 1.f),
+    glm::vec4(0.f, 1.f, 0.f, 1.f),
+    glm::vec4(0.f, 0.f, 1.f, 1.f),
+    glm::vec4(1.f, 1.f, 0.f, 1.f),
+    glm::vec4(1.f, 0.f, 1.f, 1.f),
+    glm::vec4(0.f, 1.f, 1.f, 1.f)
 };
 
-
-void etna::Renderer::initCubeVertexBuffers() {
+void etna::Renderer::initScene() {
     auto vikingRoomPath = getenv("VIKING_ROOM_OBJ");
-
-    std::vector<etna::ColoredVertex> vertices;
-    std::vector<uint32_t> indices;
-
     if (vikingRoomPath) {
-        tinyobj::attrib_t attrib;
-        std::vector<tinyobj::shape_t> shapes;
-        std::vector<tinyobj::material_t> materials;
-        std::string warns;
-        std::string errors;
+        loadObj(vikingRoomPath);
+    }
+}
 
-        tinyobj::LoadObj(&attrib, &shapes, &materials, &warns, &errors, vikingRoomPath);
-        if (!warns.empty()) spdlog::warn(warns);
-        if (!errors.empty()) spdlog::error(errors);
+void etna::Renderer::loadObj(const std::filesystem::path &path) {
+    assert(std::filesystem::exists(path));
+    std::vector<etna::ColoredVertex> vertices;
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warns;
+    std::string errors;
 
-        constexpr float xrotation = glm::radians(-90.f);
-        constexpr float yrotation = glm::radians(-90.f);
-        constexpr float zrotation = glm::radians(-90.f);
+    tinyobj::LoadObj(&attrib, &shapes, &materials, &warns, &errors, path.c_str());
+    if (!warns.empty()) spdlog::warn(warns);
+    if (!errors.empty()) spdlog::error(errors);
 
-        for (const auto& shape : shapes) {
-            for ([[maybe_unused]]const auto& index : shape.mesh.indices) {
-                ColoredVertex vertex{};
+    for (const auto& shape : shapes) {
+        for ([[maybe_unused]]const auto& index : shape.mesh.indices) {
+            ColoredVertex vertex{};
 
-                vertex.position = {
-                    attrib.vertices[3 * index.vertex_index + 2] * 5,
-                    attrib.vertices[3 * index.vertex_index + 1] * 5,
-                    attrib.vertices[3 * index.vertex_index + 0] * 5,
-                    1.f
-                };
+            vertex.displacement = {
+                attrib.vertices[3 * index.vertex_index + 2] * 5,
+                attrib.vertices[3 * index.vertex_index + 1] * 5,
+                attrib.vertices[3 * index.vertex_index + 0] * 5
+            };
 
-                vertex.position = vertex.position * (glm::mat4(1.f) * glm::eulerAngleXYX(xrotation, yrotation, zrotation));
-
-                vertex.color = {1.f, 1.f, 1.f, 1.f};
-                vertices.push_back(vertex);
-                indices.push_back(indices.size());
-            }
+            vertex.color = {1.f, 1.f, 1.f, 1.f};
+            vertices.push_back(vertex);
         }
     }
 
+    vk::BufferCreateInfo bufferCreateInfo( {}, sizeof(ColoredVertex) * vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
 
-    vk::BufferCreateInfo bufferCreateInfo(
-                vk::BufferCreateFlags(),
-                sizeof(g_vb_solid_face_colors_Data) + sizeof(ColoredVertex) * vertices.size(),
-                vk::BufferUsageFlagBits::eVertexBuffer,
-                vk::SharingMode::eExclusive,
-                0, nullptr
-                );
-    vertexBuffer = device->createBufferUnique(bufferCreateInfo);
     VmaAllocationCreateInfo allocCreateInfo = {};
     allocCreateInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
     VkBuffer stagingBuffer;
@@ -657,46 +589,30 @@ void etna::Renderer::initCubeVertexBuffers() {
     std::byte *vMem;
 
     vmaMapMemory(allocator.get(), stagingAlloc, reinterpret_cast<void**>(&vMem));
-    memcpy(vMem, g_vb_solid_face_colors_Data.data(), sizeof(g_vb_solid_face_colors_Data));
-    memcpy(&vMem[sizeof(g_vb_solid_face_colors_Data)], vertices.data(), sizeof(ColoredVertex) * vertices.size());
+    memcpy(vMem, vertices.data(), sizeof(ColoredVertex) * vertices.size());
     vmaUnmapMemory(allocator.get(), stagingAlloc);
-    vertexBuffer.reset(stagingBuffer);
-    vmaAlloc.reset(allocator.get(), stagingAlloc);
 
     viBindings.binding = 0;
     viBindings.inputRate = vk::VertexInputRate::eVertex;
     viBindings.stride = sizeof(ColoredVertex);
 
-    viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32A32Sfloat, 0);
+    viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat, 0);
     viAttribs.emplace_back(1, 0, vk::Format::eR32G32B32A32Sfloat, offsetof(struct ColoredVertex, color));
 
-    SceneObject cubeObj;
-    cubeObj.vertexBuffer = *vertexBuffer;
-    cubeObj.bufferStart = 0;
-    cubeObj.numVerts = 6 * 6;
-    cubeObj.name = "cube";
+    SceneObject meshObj;
+    meshObj.vertexBuffer = vk::UniqueBuffer(stagingBuffer, *device);
 
-    SceneObject coordinatesObj;
-    coordinatesObj.vertexBuffer = *vertexBuffer;
-    coordinatesObj.bufferStart = cubeObj.numVerts + cubeObj.bufferStart;
-    coordinatesObj.numVerts = 6;
-    coordinatesObj.name = "world";
-    coordinatesObj.visible = true;
-    coordinatesObj.topology = vk::PrimitiveTopology::eLineList;
+    meshObj.bufferAllocation.reset(allocator.get(), stagingAlloc);
+    meshObj.bufferStart = 0;
+    meshObj.numVerts = std::ssize(vertices);
+    meshObj.visible = true;
+    meshObj.name = path.filename();
 
-    sceneObjects.emplace_back(std::move(cubeObj));
-    sceneObjects.emplace_back(std::move(coordinatesObj));
+    sceneObjects.emplace_back(std::move(meshObj));
+}
 
-    if (vikingRoomPath) {
-        SceneObject meshObj;
-        meshObj.vertexBuffer = *vertexBuffer;
-        meshObj.bufferStart = coordinatesObj.numVerts + coordinatesObj.bufferStart;
-        meshObj.numVerts = std::ssize(vertices);
-        meshObj.visible = true;
-        meshObj.name = "viking_room";
+void etna::Renderer::spawnCube() {
 
-        sceneObjects.emplace_back(std::move(meshObj));
-    }
 }
 
 vk::SampleCountFlagBits etna::Renderer::getMaxUsableSampleCount() {
@@ -716,8 +632,7 @@ vk::SampleCountFlagBits etna::Renderer::getMaxUsableSampleCount() {
 void etna::Renderer::initPipeline() {
     std::array dynamicStates = {
         vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor,
-        /* vk::DynamicState::ePrimitiveTopologyEXT */
+        vk::DynamicState::eScissor
     };
     vk::PipelineDynamicStateCreateInfo dynamicStateInfo;
     dynamicStateInfo.dynamicStateCount = dynamicStates.size();
@@ -960,12 +875,11 @@ void etna::Renderer::draw() {
     commandBuffers[0]->setScissor(0, 1, &scissor);
 
     commandBuffers[0]->bindPipeline(vk::PipelineBindPoint::eGraphics, *coloredVertexPipeline);
-    commandBuffers[0]->bindVertexBuffers( 0, 1, &*vertexBuffer, &offset);
 
     for (const auto& object: sceneObjects) {
         if (object.visible) {
             // commandBuffers[0]->setPrimitiveTopologyEXT(object.topology, dldi);
-            
+            commandBuffers[0]->bindVertexBuffers( 0, 1, &*object.vertexBuffer, &offset);
             commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, 1, &sharedDescriptorSet, 1, &object.uniformBufferOffset);
             commandBuffers[0]->draw(object.numVerts, 1, object.bufferStart, 0);
         }

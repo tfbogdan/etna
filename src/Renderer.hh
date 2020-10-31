@@ -8,39 +8,13 @@
 #include <VulkanMemoryAllocator/vk_mem_alloc.h>
 #include <GLFW/glfw3.h>
 
+#include "Vertex.hh"
+#include <filesystem>
+
 namespace etna {
 
     struct UniformBuffer {
         glm::mat4 mvp;
-    };
-
-    struct ColoredVertex {
-        glm::vec4 position;
-        glm::vec4 color;
-    };
-
-    struct SceneObject {
-        std::string name;
-        glm::vec3 position = {0,0,0};
-        glm::vec3 rotation = {0,0,0};
-        glm::vec3 scale =    {1,1,1};
-
-        bool visible = false;
-        vk::Buffer vertexBuffer = {};
-        vk::PrimitiveTopology topology = vk::PrimitiveTopology::eTriangleList;
-
-        int bufferStart = 0;
-        int numVerts = 0;
-
-        uint32_t uniformBufferOffset = 0;
-    };
-
-    struct Camera {
-        float fov = 110.f;
-        float zNear = 1.f;
-
-        glm::vec4 pos = glm::vec4(0, 0, -15, 1);
-        glm::vec3 rotation = {};
     };
 
     class UniqueVmaAllocation {
@@ -82,6 +56,32 @@ namespace etna {
         VmaAllocation _allocation = nullptr;
     };
 
+    struct SceneObject {
+        std::string name;
+        glm::vec3 position = {0,0,0};
+        glm::vec3 rotation = {0,0,0};
+        glm::vec3 scale =    {1,1,1};
+
+        bool visible = false;
+        vk::UniqueBuffer vertexBuffer = {};
+        UniqueVmaAllocation bufferAllocation = {};
+        vk::PrimitiveTopology topology = vk::PrimitiveTopology::eTriangleList;
+
+        int bufferStart = 0;
+        int numVerts = 0;
+
+        uint32_t uniformBufferOffset = 0;
+    };
+
+    struct Camera {
+        float fov = 110.f;
+        float zNear = 1.f;
+
+        glm::vec4 pos = glm::vec4(0, 0, -15, 1);
+        glm::vec3 rotation = {};
+    };
+
+
     struct ImageData {
         vk::UniqueImage image = {};
         vk::UniqueImageView imageView = {};
@@ -113,7 +113,10 @@ namespace etna {
         void initShaders();
         void initFramebuffers();
         void initGuiFramebuffers();
-        void initCubeVertexBuffers();
+        void initScene();
+        void loadObj(const std::filesystem::path& path);
+        void spawnCube();
+
         void initPipeline();
 
         void initGui();
@@ -192,9 +195,6 @@ namespace etna {
         vk::UniquePipeline texturedVertexPipeline;
 
         vk::UniqueRenderPass renderPass;
-
-        vk::UniqueBuffer vertexBuffer;
-        UniqueVmaAllocation vmaAlloc;
 
         vk::VertexInputBindingDescription viBindings;
         std::vector<vk::VertexInputAttributeDescription> viAttribs;

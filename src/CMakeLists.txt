@@ -5,4 +5,6 @@ target_sources(etna PRIVATE
     Renderer.hh
     Pipeline.hh
     Pipeline.cc
+    GeometryGenerators.hh
+    Vertex.hh
     )

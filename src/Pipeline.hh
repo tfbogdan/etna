@@ -11,5 +11,4 @@ namespace etna {
 
         vk::UniquePipeline pipelineObject;
     };
-
 }
