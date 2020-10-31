@@ -374,9 +374,6 @@ void etna::Renderer::initSharedUniformBuffer() {
     sharedUboMappedMemory = reinterpret_cast<std::byte*>(allocationInfo.pMappedData);
     sharedUniformAllocation.reset(allocator.get(), stagingAlloc);
     vmaBindBufferMemory(allocator.get(), sharedUniformAllocation, *sharedUniformBuffer);
-    sharedBufferInfo.buffer = *sharedUniformBuffer;
-    sharedBufferInfo.offset = 0;
-    sharedBufferInfo.range = VK_WHOLE_SIZE;
 
     // Calculate required alignment based on minimum device offset alignment
     size_t minUboAlignment = gpu.getProperties().limits.minUniformBufferOffsetAlignment;
@@ -425,12 +422,13 @@ void etna::Renderer::updateUniformBuffers() {
 }
 
 void etna::Renderer::initPipelineLayout() {
-    std::array layoutBindings = {
+    std::array sharedLayoutBindings = {
         vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex),
         vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment)
     };
-    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo({},layoutBindings);
-    descSetLayout = device->createDescriptorSetLayoutUnique(descriptorLayoutInfo);
+    vk::DescriptorSetLayoutCreateInfo sharedDescriptorLayoutInfo({}, sharedLayoutBindings);
+    descSetLayout = device->createDescriptorSetLayoutUnique(sharedDescriptorLayoutInfo);
+
     vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, std::array{ *descSetLayout });
     pipelineLayout = device->createPipelineLayoutUnique(pipelineLayoutCreateInfo);
 }
@@ -456,6 +454,12 @@ void etna::Renderer::initDescriptorPool() {
 void etna::Renderer::initSharedDescriptorSet() {
     vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(*descriptorPool, 1, &*descSetLayout);
     sharedDescriptorSet = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
+
+    vk::DescriptorBufferInfo sharedBufferInfo;
+    sharedBufferInfo.buffer = *sharedUniformBuffer;
+    sharedBufferInfo.offset = 0;
+    sharedBufferInfo.range = VK_WHOLE_SIZE;
+
     vk::WriteDescriptorSet write(sharedDescriptorSet, 0, 0, 1, vk::DescriptorType::eUniformBufferDynamic, nullptr, &sharedBufferInfo, nullptr);
     device->updateDescriptorSets(1, &write, 0, nullptr);
 }
@@ -607,7 +611,7 @@ void etna::Renderer::initSampler() {
     samplerCreate.addressModeW = vk::SamplerAddressMode::eRepeat;
     samplerCreate.anisotropyEnable = true;
     samplerCreate.maxAnisotropy = 12.f;
-    samplerCreate.borderColor = vk::BorderColor::eIntOpaqueBlack;
+    samplerCreate.borderColor = vk::BorderColor::eIntOpaqueWhite;
     samplerCreate.unnormalizedCoordinates = false;
     samplerCreate.compareEnable = false;
     samplerCreate.compareOp = vk::CompareOp::eAlways;
@@ -692,6 +696,7 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
     VmaAllocationInfo allocInfo = {};
     vmaCreateBuffer(allocator.get(), &static_cast<VkBufferCreateInfo&>(bufferCreate), &bufferAlloc, &stagingBuffer, &stagingAlloc, &allocInfo);
     memcpy(allocInfo.pMappedData, pixels, w * h * 4);
+    stbi_image_free(pixels);
 
     VkImage stagingImage;
     VmaAllocation stagingImageAlloc;
@@ -707,11 +712,12 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
             .setSharingMode(vk::SharingMode::eExclusive)
             .setMipLevels(1)
             .setArrayLayers(1)
-            .setExtent(vk::Extent3D(w, h, 1));
+            .setExtent(vk::Extent3D(w, h, 1))
+            .setInitialLayout(vk::ImageLayout::eUndefined);
 
     vmaCreateImage(allocator.get(), &static_cast<VkImageCreateInfo&>(imageCreate), &imageAllocInfo, &stagingImage, &stagingImageAlloc, nullptr);
     transitionImageLayout(stagingImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    immediateCommandBuffer([w, h, stagingBuffer ,stagingImage](auto commandBuffer){
+    immediateCommandBuffer([w, h, stagingBuffer, stagingImage](auto commandBuffer){
         vk::BufferImageCopy imgCopy; imgCopy
                 .setImageExtent(vk::Extent3D(w, h, 1));
                 imgCopy.imageSubresource.setAspectMask(vk::ImageAspectFlagBits::eColor)
@@ -728,9 +734,12 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
             .subresourceRange
                 .setAspectMask(vk::ImageAspectFlagBits::eColor)
                 .setLevelCount(1)
-                .setLayerCount(1);
+                .setLayerCount(1)
+                .setBaseMipLevel(0)
+                .setBaseArrayLayer(0);
+
     obj.textureView = device->createImageViewUnique(imgViewInfo);
-    obj.image = vk::UniqueImage(stagingImage, *device);
+    obj.textureImage = vk::UniqueImage(stagingImage, *device);
     obj.textureAllocation.reset(allocator.get(), stagingImageAlloc);
 
     vmaDestroyBuffer(allocator.get(), stagingBuffer, stagingAlloc);
@@ -738,8 +747,17 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
     vk::DescriptorImageInfo descImageInfo(*textureSampler, *obj.textureView, vk::ImageLayout::eShaderReadOnlyOptimal);
     vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(*descriptorPool, 1, &*descSetLayout);
     obj.samplerDescriptor = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
-    vk::WriteDescriptorSet write(obj.samplerDescriptor, 1, 0, 1, vk::DescriptorType::eCombinedImageSampler, &descImageInfo, nullptr, nullptr);
-    device->updateDescriptorSets(std::array{write}, {});
+
+    vk::DescriptorBufferInfo sharedBufferInfo;
+    sharedBufferInfo.buffer = *sharedUniformBuffer;
+    sharedBufferInfo.offset = 0;
+    sharedBufferInfo.range = VK_WHOLE_SIZE;
+
+    std::array writes {
+        vk::WriteDescriptorSet(obj.samplerDescriptor, 0, 0, 1, vk::DescriptorType::eUniformBufferDynamic, nullptr, &sharedBufferInfo, nullptr),
+        vk::WriteDescriptorSet(obj.samplerDescriptor, 1, 0, 1, vk::DescriptorType::eCombinedImageSampler, &descImageInfo, nullptr, nullptr)
+    };
+    device->updateDescriptorSets(writes, {});
 }
 
 void etna::Renderer::spawnCube() {
@@ -772,7 +790,7 @@ void etna::Renderer::initPipeline() {
     vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo({}, viBindings, viAttribs);
     vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo({}, vk::PrimitiveTopology::eTriangleList);
 
-    vk::PipelineRasterizationStateCreateInfo pipelineRasterizationStateCreateInfo({}, false, false, vk::PolygonMode::eFill, 
+    vk::PipelineRasterizationStateCreateInfo pipelineRasterizationStateCreateInfo({}, false, false, vk::PolygonMode::eFill,
                                                 vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,false, 0, 0, 0, 1.f);
 
     vk::PipelineColorBlendAttachmentState pipelineColorBlendAttachmentState = {};
@@ -997,9 +1015,10 @@ void etna::Renderer::draw() {
 
     for (const auto& object: sceneObjects) {
         if (object.visible) {
-            // commandBuffers[0]->setPrimitiveTopologyEXT(object.topology, dldi);
             commandBuffers[0]->bindVertexBuffers( 0, 1, &*object.vertexBuffer, &offset);
-            commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, std::array{sharedDescriptorSet, object.samplerDescriptor}, std::array{object.uniformBufferOffset});
+            const std::array objectDescSets     {object.samplerDescriptor};
+            const std::array dynamicUBOOffsets  {object.uniformBufferOffset};
+            commandBuffers[0]->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, objectDescSets, dynamicUBOOffsets);
             commandBuffers[0]->draw(object.numVerts, 1, object.bufferStart, 0);
         }
     }

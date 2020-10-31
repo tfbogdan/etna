@@ -69,7 +69,7 @@ namespace etna {
         vk::UniqueBuffer vertexBuffer = {};
         UniqueVmaAllocation bufferAllocation = {};
 
-        vk::UniqueImage image = {};
+        vk::UniqueImage textureImage = {};
         vk::UniqueImageView textureView {};
         UniqueVmaAllocation textureAllocation = {};
         vk::DescriptorSet samplerDescriptor = {};
@@ -212,11 +212,11 @@ namespace etna {
 
         vk::UniqueBuffer sharedUniformBuffer;
         UniqueVmaAllocation sharedUniformAllocation;
-        vk::DescriptorBufferInfo sharedBufferInfo;
         vk::DescriptorSet sharedDescriptorSet;
         std::byte* sharedUboMappedMemory = nullptr;
 
         vk::UniqueDescriptorSetLayout descSetLayout;
+
         vk::UniquePipelineLayout pipelineLayout;
         vk::UniqueDescriptorPool descriptorPool;
 
