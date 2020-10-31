@@ -59,9 +59,6 @@ void etna::Renderer::initialize(GLFWwindow* window) {
     spdlog::debug("initCommandBuffer");
     initCommandBuffer();
 
-    spdlog::debug("beginRecordCommandBuffer");
-    beginRecordCommandBuffer(0);
-
     spdlog::debug("initPipelineLayout");
     initPipelineLayout();
 
@@ -85,12 +82,6 @@ void etna::Renderer::initialize(GLFWwindow* window) {
     initPipeline();
 
     recreateSwapChain();
-
-    spdlog::debug("endRecordCommandBuffer");
-    endRecordCommandBuffer(0);
-
-    spdlog::debug("submitCommandBuffer");
-    submitCommandBuffer(0);
 
     initGui();
 }
@@ -128,12 +119,7 @@ void etna::Renderer::createInstance() {
     auto glfwRequiredExtensions = glfwGetRequiredInstanceExtensions(&numExts);
     requiredExtensions.insert(requiredExtensions.end(), glfwRequiredExtensions, glfwRequiredExtensions + numExts);
 
-    vk::InstanceCreateInfo instanceCreateInfo(
-                vk::InstanceCreateFlags(),
-                &appInfo,
-                validationLayers.size(), validationLayers.data(),
-                requiredExtensions.size(), requiredExtensions.data()
-                );
+    vk::InstanceCreateInfo instanceCreateInfo({}, &appInfo, validationLayers, requiredExtensions);
 
 
     auto layers = vk::enumerateInstanceLayerProperties();
@@ -141,8 +127,7 @@ void etna::Renderer::createInstance() {
     dldi = vk::DispatchLoaderDynamic(*instance, vkGetInstanceProcAddr);
 
     vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfo(
-                vk::DebugUtilsMessengerCreateFlagsEXT(),
-                vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose,
+        {}, vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose,
                 vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
                 vulkanDebugCallback
                 );
@@ -442,12 +427,11 @@ void etna::Renderer::updateUniformBuffers() {
 void etna::Renderer::initPipelineLayout() {
     std::array layoutBindings = {
         vk::DescriptorSetLayoutBinding(0, vk::DescriptorType::eUniformBufferDynamic, 1, vk::ShaderStageFlagBits::eVertex),
-        vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eFragment),
+        vk::DescriptorSetLayoutBinding(1, vk::DescriptorType::eCombinedImageSampler, 1, vk::ShaderStageFlagBits::eFragment)
     };
-    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo;
-    descriptorLayoutInfo.setBindings(layoutBindings);
+    vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo({},layoutBindings);
     descSetLayout = device->createDescriptorSetLayoutUnique(descriptorLayoutInfo);
-    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, 1, &*descSetLayout);
+    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, std::array{ *descSetLayout });
     pipelineLayout = device->createPipelineLayoutUnique(pipelineLayoutCreateInfo);
 }
 
@@ -601,6 +585,14 @@ constexpr std::array faceColors {
 
 void etna::Renderer::initScene() {
     auto vikingRoomPath = getenv("VIKING_ROOM_OBJ");
+    viBindings.binding = 0;
+    viBindings.inputRate = vk::VertexInputRate::eVertex;
+    viBindings.stride = sizeof(TexturedVertex);
+
+    viAttribs.clear();
+    viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(struct TexturedVertex, displacement));
+    viAttribs.emplace_back(1, 0, vk::Format::eR32G32Sfloat, offsetof(struct TexturedVertex, uv));
+
     if (vikingRoomPath) {
         loadObj(vikingRoomPath);
     }
@@ -632,7 +624,7 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
     std::string warns;
     std::string errors;
 
-    tinyobj::LoadObj(&attrib, &shapes, &materials, &warns, &errors, path.c_str());
+    tinyobj::LoadObj(&attrib, &shapes, &materials, &warns, &errors, path.string().c_str());
     if (!warns.empty()) spdlog::warn(warns);
     if (!errors.empty()) spdlog::error(errors);
 
@@ -668,13 +660,6 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
     memcpy(vMem, vertices.data(), sizeof(TexturedVertex) * vertices.size());
     vmaUnmapMemory(allocator.get(), stagingAlloc);
 
-    viBindings.binding = 0;
-    viBindings.inputRate = vk::VertexInputRate::eVertex;
-    viBindings.stride = sizeof(TexturedVertex);
-
-    viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat, 0);
-    viAttribs.emplace_back(1, 0, vk::Format::eR32G32Sfloat, offsetof(struct TexturedVertex, uv));
-
     SceneObject meshObj;
     meshObj.vertexBuffer = vk::UniqueBuffer(stagingBuffer, *device);
 
@@ -682,7 +667,7 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
     meshObj.bufferStart = 0;
     meshObj.numVerts = std::ssize(vertices);
     meshObj.visible = true;
-    meshObj.name = path.filename();
+    meshObj.name = path.filename().string();
 
     auto imagePath = path;
     imagePath.replace_extension(".png");
@@ -694,7 +679,7 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
 void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneObject &obj) {
     assert(std::filesystem::exists(path));
     int w, h, channels;
-    stbi_uc* pixels = stbi_load(path.c_str(), &w, &h, &channels, STBI_rgb_alpha);
+    stbi_uc* pixels = stbi_load(path.string().c_str(), &w, &h, &channels, STBI_rgb_alpha);
 
     VkBuffer stagingBuffer;
     VmaAllocation stagingAlloc;
@@ -753,7 +738,7 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
     vk::DescriptorImageInfo descImageInfo(*textureSampler, *obj.textureView, vk::ImageLayout::eShaderReadOnlyOptimal);
     vk::DescriptorSetAllocateInfo descriptorSetAllocateInfo(*descriptorPool, 1, &*descSetLayout);
     obj.samplerDescriptor = device->allocateDescriptorSets(descriptorSetAllocateInfo).front();
-    vk::WriteDescriptorSet write(obj.samplerDescriptor, 1, 0, 1, vk::DescriptorType::eSampler, &descImageInfo, nullptr, nullptr);
+    vk::WriteDescriptorSet write(obj.samplerDescriptor, 1, 0, 1, vk::DescriptorType::eCombinedImageSampler, &descImageInfo, nullptr, nullptr);
     device->updateDescriptorSets(std::array{write}, {});
 }
 
@@ -784,20 +769,11 @@ void etna::Renderer::initPipeline() {
     dynamicStateInfo.dynamicStateCount = dynamicStates.size();
     dynamicStateInfo.pDynamicStates = dynamicStates.data();
 
-    vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo;
-    pipelineVertexInputStateCreateInfo.vertexBindingDescriptionCount = 1;
-    pipelineVertexInputStateCreateInfo.pVertexBindingDescriptions = &viBindings;
-    pipelineVertexInputStateCreateInfo.vertexAttributeDescriptionCount = viAttribs.size();
-    pipelineVertexInputStateCreateInfo.pVertexAttributeDescriptions = viAttribs.data();
+    vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo({}, viBindings, viAttribs);
+    vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo({}, vk::PrimitiveTopology::eTriangleList);
 
-    vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo;
-    pipelineInputAssemblyStateCreateInfo.setTopology(vk::PrimitiveTopology::eTriangleList);
-
-    vk::PipelineRasterizationStateCreateInfo pipelineRasterizationStateCreateInfo(
-                vk::PipelineRasterizationStateCreateFlags(),
-                false, false, vk::PolygonMode::eFill, vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,
-                false, 0, 0, 0, 1.f
-                );
+    vk::PipelineRasterizationStateCreateInfo pipelineRasterizationStateCreateInfo({}, false, false, vk::PolygonMode::eFill, 
+                                                vk::CullModeFlagBits::eBack, vk::FrontFace::eClockwise,false, 0, 0, 0, 1.f);
 
     vk::PipelineColorBlendAttachmentState pipelineColorBlendAttachmentState = {};
     pipelineColorBlendAttachmentState.blendEnable = true;
@@ -889,11 +865,9 @@ void etna::Renderer::initGui() {
 
     imguiInitInfo.CheckVkResultFn = nullptr;
     ImGui_ImplVulkan_Init(&imguiInitInfo, *guiRenderPass);
-
-    beginRecordCommandBuffer(1);
-    ImGui_ImplVulkan_CreateFontsTexture(*commandBuffers[1]);
-    endRecordCommandBuffer(1);
-    submitCommandBuffer(1);
+    immediateCommandBuffer([](auto commandBuffer) {
+        ImGui_ImplVulkan_CreateFontsTexture(commandBuffer);
+    });
 }
 
 void etna::Renderer::buildGui() {

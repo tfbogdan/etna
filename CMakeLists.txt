@@ -26,10 +26,10 @@ macro(compile_shader shader_file)
     add_custom_command(
             COMMAND ${GLSLANG_VALIDATOR} -V ${CMAKE_CURRENT_LIST_DIR}/${shader_file} --vn ${shaderName} -o ${PROJECT_BINARY_DIR}/shaders/${shaderName}.h
             DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${shader_file}
-            OUTPUT ${PROJECT_BINARY_DIR}/${shaderName}.h
+            OUTPUT ${PROJECT_BINARY_DIR}/shaders/${shaderName}.h
             COMMENT "Compiling shader ${shaderName}"
     )
-    target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${shader_file} ${PROJECT_BINARY_DIR}/${shaderName}.h)
+    target_sources(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/${shader_file} ${PROJECT_BINARY_DIR}/shaders/${shaderName}.h)
 endmacro()
 
 

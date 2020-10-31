@@ -101,7 +101,7 @@ void glfwWindowResizedCB(GLFWwindow* window, int /*w*/, int /*h*/) {
 }
 
 int main(int, char**) {
-    etna::Renderer vulkan;
+    etna::Renderer renderer;
 
     spdlog::set_level(spdlog::level::level_enum::info);
     spdlog::flush_on(spdlog::level::level_enum::info);
@@ -114,11 +114,18 @@ int main(int, char**) {
 
     window = glfwCreateWindow(1920, 1080, "Etna", nullptr, nullptr);
 
-    glfwSetWindowUserPointer(window, &vulkan);
+    glfwSetWindowUserPointer(window, &renderer);
     glfwSetKeyCallback(window, &glfwKeyCB);
     glfwSetWindowSizeCallback(window, &glfwWindowResizedCB);
 
-    vulkan.initialize(window);
+    try {
+        renderer.initialize(window);
+    }
+    catch (const std::exception& e) {
+        spdlog::critical("Critical error during renderer initialization: {}", e.what());
+        exit(-1);
+    }
+
 #ifdef __linux__ 
     initInput();
     std::thread input_thread(directInputLoop);
@@ -134,8 +141,8 @@ int main(int, char**) {
                 }
                 glfwPollEvents();
             }
-            vulkan.buildGui();
-            vulkan.draw();
+            renderer.buildGui();
+            renderer.draw();
         }
     } catch (const std::exception& e) {
         spdlog::critical(e.what());

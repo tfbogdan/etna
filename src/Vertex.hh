@@ -10,12 +10,12 @@ namespace etna {
 
     template <typename T>
     concept VertexWithDisplacementConcept = requires(T& a) {
-        a.displacement -> Vec3Concept;
+        { a.displacement } -> Vec3Concept;
     };
 
     template <typename T>
     concept VertexWithNormalConcept = requires(T& a) {
-        a.normal -> Vec3Concept;
+        { a.normal } -> Vec3Concept;
     };
 
     template <typename T>
