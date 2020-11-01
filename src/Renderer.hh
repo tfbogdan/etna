@@ -163,7 +163,7 @@ namespace etna {
 
         void createInstance();
 
-        void transitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout);
+        void transitionImageLayout(vk::Image image, vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
 
         bool isNested() const;
 

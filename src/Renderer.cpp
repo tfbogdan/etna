@@ -121,13 +121,12 @@ void etna::Renderer::createInstance() {
 
     vk::InstanceCreateInfo instanceCreateInfo({}, &appInfo, validationLayers, requiredExtensions);
 
-
     auto layers = vk::enumerateInstanceLayerProperties();
     instance = vk::createInstanceUnique(instanceCreateInfo);
     dldi = vk::DispatchLoaderDynamic(*instance, vkGetInstanceProcAddr);
 
     vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfo(
-        {}, vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose,
+                {}, vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose,
                 vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral | vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation,
                 vulkanDebugCallback
                 );
@@ -138,48 +137,37 @@ void etna::Renderer::createInstance() {
     gpu = gpus[0];
 }
 
-void etna::Renderer::transitionImageLayout(VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout) {
-    immediateCommandBuffer([image, oldLayout, newLayout] (auto commandBuffer){
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+void etna::Renderer::transitionImageLayout(vk::Image image, vk::ImageLayout oldLayout, vk::ImageLayout newLayout) {
+    immediateCommandBuffer([image, oldLayout, newLayout] (vk::CommandBuffer commandBuffer){
+        vk::ImageMemoryBarrier barrier;
         barrier.oldLayout = oldLayout;
         barrier.newLayout = newLayout;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
         barrier.subresourceRange.baseMipLevel = 0;
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
 
-        VkPipelineStageFlags sourceStage;
-        VkPipelineStageFlags destinationStage;
+        vk::PipelineStageFlags sourceStage;
+        vk::PipelineStageFlags destinationStage;
 
-        if (oldLayout == VK_IMAGE_LAYOUT_UNDEFINED && newLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-            barrier.srcAccessMask = 0;
-            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-
-            sourceStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            destinationStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        } else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
-            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-            sourceStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-            destinationStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        if (oldLayout == vk::ImageLayout::eUndefined && newLayout == vk::ImageLayout::eTransferDstOptimal) {
+            barrier.srcAccessMask = {};
+            barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
+            sourceStage = vk::PipelineStageFlagBits::eTopOfPipe;
+            destinationStage = vk::PipelineStageFlagBits::eTransfer;
+        } else if (oldLayout == vk::ImageLayout::eTransferDstOptimal && newLayout == vk::ImageLayout::eShaderReadOnlyOptimal) {
+            barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
+            barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
+            sourceStage = vk::PipelineStageFlagBits::eTransfer;
+            destinationStage = vk::PipelineStageFlagBits::eFragmentShader;
         } else {
             throw std::invalid_argument("unsupported layout transition!");
         }
-
-        vkCmdPipelineBarrier(
-            commandBuffer,
-            sourceStage, destinationStage,
-            0,
-            0, nullptr,
-            0, nullptr,
-            1, &barrier
-        );
+        commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, {}, {}, std::array{barrier});
     });
 
 }
@@ -214,23 +202,14 @@ void etna::Renderer::initDevice() {
     // TDO: for simplification, we assume that we only have 1 queue family that
     // supports all operations but that's clearly not good enough for real world usage
     assert (supportsPresent[queueFamily]);
-    float queue_priorities[1] = { .0 };
-    vk::DeviceQueueCreateInfo queueInfo(
-                vk::DeviceQueueCreateFlags(),
-                queueFamily,
-                1, queue_priorities);
+    std::array queue_priorities { .0f };
+    vk::DeviceQueueCreateInfo queueInfo( {}, queueFamily, queue_priorities);
 
     vk::PhysicalDeviceFeatures deviceFeatures = {};
     deviceFeatures.sampleRateShading = true;
     deviceFeatures.samplerAnisotropy = true;
 
-    vk::DeviceCreateInfo deviceInfo(
-                {},
-                1, &queueInfo,
-                validationLayers.size(), validationLayers.data(),
-                deviceExtensions.size(), deviceExtensions.data(),
-                &deviceFeatures
-                );
+    vk::DeviceCreateInfo deviceInfo({}, std::array{queueInfo}, validationLayers, deviceExtensions, &deviceFeatures);
     vk::PhysicalDeviceDriverProperties driverProps;
     vk::PhysicalDeviceProperties2 props2;
     props2.pNext = &driverProps;
@@ -248,13 +227,6 @@ void etna::Renderer::initDevice() {
     allocator.reset(stagingAllocator);
 
     queue = device->getQueue(queueFamily, 0);
-}
-
-
-bool etna::Renderer::isNested() const {
-    std::string_view session_type = getenv("XDG_SESSION_TYPE");
-    spdlog::info("Session type {} detected", session_type);
-    return session_type == "wayland" || session_type == "x11";
 }
 
 void etna::Renderer::initSurface(GLFWwindow* window) {
@@ -303,8 +275,7 @@ void etna::Renderer::initSwapchain() {
     swapchainInfo.imageArrayLayers      = 1;
     swapchainInfo.imageUsage            = vk::ImageUsageFlagBits::eColorAttachment;
     swapchainInfo.imageSharingMode      = vk::SharingMode::eExclusive;
-    swapchainInfo.queueFamilyIndexCount = 1;
-    swapchainInfo.pQueueFamilyIndices   = &queueFamily;
+    swapchainInfo.setQueueFamilyIndices(std::array{queueFamily});
     swapchainInfo.preTransform          = surfaceCapabilities.currentTransform;
     swapchainInfo.compositeAlpha        = vk::CompositeAlphaFlagBitsKHR::eOpaque;
     swapchainInfo.presentMode           = presentMode;
@@ -314,7 +285,7 @@ void etna::Renderer::initSwapchain() {
     swapchainImageViews.clear();
 
     for(auto &image: swapchainImages) {
-        vk::ImageViewCreateInfo viewInfo( vk::ImageViewCreateFlags(), image, vk::ImageViewType::e2D,vk::Format::eB8G8R8A8Unorm,
+        vk::ImageViewCreateInfo viewInfo( {}, image, vk::ImageViewType::e2D,vk::Format::eB8G8R8A8Unorm,
                                           vk::ComponentMapping(vk::ComponentSwizzle::eIdentity),
                                           vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1));
         swapchainImageViews.emplace_back(device->createImageViewUnique(viewInfo));
@@ -541,7 +512,7 @@ void etna::Renderer::initGuiRenderPass() {
 void etna::Renderer::initShaders() {
     spdlog::trace("Compiling vertex shader");
     vk::ShaderModuleCreateInfo shaderModuleCreateInfo(
-                vk::ShaderModuleCreateFlags(),
+                {},
                 sizeof(vertex_shader),
                 vertex_shader
                 );
@@ -557,18 +528,10 @@ void etna::Renderer::initShaders() {
 void etna::Renderer::initFramebuffers() {
     framebuffers.clear();
     for (uint32_t idx(0); idx < swapchainImages.size(); ++idx) {
-        spdlog::trace("Creating framebuffer {}:", idx);
         std::array attachments { *resolveBuffer.imageView, *depthBuffer.imageView, *swapchainImageViews[idx] };
 
-        vk::FramebufferCreateInfo framebufferCreateInfo(
-                    vk::FramebufferCreateFlags(),
-                    *renderPass,
-                    attachments.size(), attachments.data(),
-                    surfaceCapabilities.currentExtent.width,
-                    surfaceCapabilities.currentExtent.height,
-                    1
-                    );
-
+        vk::FramebufferCreateInfo framebufferCreateInfo( {}, *renderPass, attachments,
+                    surfaceCapabilities.currentExtent.width, surfaceCapabilities.currentExtent.height, 1);
         framebuffers.emplace_back(device->createFramebufferUnique(framebufferCreateInfo));
     }
 }
@@ -576,18 +539,10 @@ void etna::Renderer::initFramebuffers() {
 void etna::Renderer::initGuiFramebuffers() {
     guiFramebuffers.clear();
     for (uint32_t idx(0); idx < swapchainImages.size(); ++idx) {
-        spdlog::trace("Creating framebuffer {}:", idx);
         std::array attachments {*swapchainImageViews[idx]};
 
-        vk::FramebufferCreateInfo framebufferCreateInfo(
-                    vk::FramebufferCreateFlags(),
-                    *guiRenderPass,
-                    attachments.size(), attachments.data(),
-                    surfaceCapabilities.currentExtent.width,
-                    surfaceCapabilities.currentExtent.height,
-                    1
-                    );
-
+        vk::FramebufferCreateInfo framebufferCreateInfo( {}, *guiRenderPass, attachments.size(), attachments.data(),
+                    surfaceCapabilities.currentExtent.width, surfaceCapabilities.currentExtent.height, 1);
         guiFramebuffers.emplace_back(device->createFramebufferUnique(framebufferCreateInfo));
     }
 
@@ -596,11 +551,11 @@ void etna::Renderer::initGuiFramebuffers() {
 // colors per face:
 constexpr std::array faceColors {
     glm::vec4(1.f, 0.f, 0.f, 1.f),
-            glm::vec4(0.f, 1.f, 0.f, 1.f),
-            glm::vec4(0.f, 0.f, 1.f, 1.f),
-            glm::vec4(1.f, 1.f, 0.f, 1.f),
-            glm::vec4(1.f, 0.f, 1.f, 1.f),
-            glm::vec4(0.f, 1.f, 1.f, 1.f)
+    glm::vec4(0.f, 1.f, 0.f, 1.f),
+    glm::vec4(0.f, 0.f, 1.f, 1.f),
+    glm::vec4(1.f, 1.f, 0.f, 1.f),
+    glm::vec4(1.f, 0.f, 1.f, 1.f),
+    glm::vec4(0.f, 1.f, 1.f, 1.f)
 };
 
 void etna::Renderer::initScene() {
@@ -667,7 +622,7 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
         }
     }
 
-    vk::BufferCreateInfo bufferCreateInfo( {}, sizeof(TexturedVertex) * vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
+    vk::BufferCreateInfo bufferCreateInfo({}, sizeof(TexturedVertex) * vertices.size(), vk::BufferUsageFlagBits::eVertexBuffer);
 
     VmaAllocationCreateInfo allocCreateInfo = {};
     allocCreateInfo.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
@@ -732,7 +687,7 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
             .setInitialLayout(vk::ImageLayout::eUndefined);
 
     vmaCreateImage(allocator.get(), &static_cast<VkImageCreateInfo&>(imageCreate), &imageAllocInfo, &stagingImage, &stagingImageAlloc, nullptr);
-    transitionImageLayout(stagingImage, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    transitionImageLayout(stagingImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
     immediateCommandBuffer([w, h, stagingBuffer, stagingImage](auto commandBuffer){
         vk::BufferImageCopy imgCopy; imgCopy
                 .setImageExtent(vk::Extent3D(w, h, 1));
@@ -740,7 +695,7 @@ void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneO
                         .setLayerCount(1);
         commandBuffer.copyBufferToImage(stagingBuffer, stagingImage, vk::ImageLayout::eTransferDstOptimal, std::array{imgCopy});
     });
-    transitionImageLayout(stagingImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    transitionImageLayout(stagingImage, vk::ImageLayout::eTransferDstOptimal, vk::ImageLayout::eShaderReadOnlyOptimal);
 
     vk::ImageViewCreateInfo imgViewInfo;
     imgViewInfo
@@ -767,7 +722,6 @@ void etna::Renderer::spawnCube() {
 
 vk::SampleCountFlagBits etna::Renderer::getMaxUsableSampleCount() {
     vk::PhysicalDeviceProperties props = gpu.getProperties();
-
     vk::SampleCountFlags counts = props.limits.framebufferColorSampleCounts & props.limits.framebufferDepthSampleCounts;
     if (counts & vk::SampleCountFlagBits::e64)  { return vk::SampleCountFlagBits::e64;  }
     if (counts & vk::SampleCountFlagBits::e32)  { return vk::SampleCountFlagBits::e32;  }
@@ -775,7 +729,6 @@ vk::SampleCountFlagBits etna::Renderer::getMaxUsableSampleCount() {
     if (counts & vk::SampleCountFlagBits::e8)   { return vk::SampleCountFlagBits::e8;   }
     if (counts & vk::SampleCountFlagBits::e4)   { return vk::SampleCountFlagBits::e4;   }
     if (counts & vk::SampleCountFlagBits::e2)   { return vk::SampleCountFlagBits::e2;   }
-
     return vk::SampleCountFlagBits::e1;
 }
 
@@ -809,16 +762,11 @@ void etna::Renderer::initPipeline() {
     pipelineColorBlendStateCreateInfo.logicOp = vk::LogicOp::eNoOp;
     pipelineColorBlendStateCreateInfo.attachmentCount = 1;
     pipelineColorBlendStateCreateInfo.pAttachments = &pipelineColorBlendAttachmentState;
-    pipelineColorBlendStateCreateInfo.blendConstants[0] = 1.f;
-    pipelineColorBlendStateCreateInfo.blendConstants[1] = 1.f;
-    pipelineColorBlendStateCreateInfo.blendConstants[2] = 1.f;
-    pipelineColorBlendStateCreateInfo.blendConstants[3] = 1.f;
+    pipelineColorBlendStateCreateInfo.setBlendConstants({1.f, 1.f, 1.f ,1.f});
 
     std::array vps = { vk::Viewport{} };
     std::array scissors = { vk::Rect2D{} };
-    vk::PipelineViewportStateCreateInfo pipelineViewportStateCreateInfo;
-    pipelineViewportStateCreateInfo.setViewports(vps);
-    pipelineViewportStateCreateInfo.setScissors(scissors);
+    vk::PipelineViewportStateCreateInfo pipelineViewportStateCreateInfo({}, vps, scissors);
 
     vk::PipelineDepthStencilStateCreateInfo pipelineDepthStencilCreateInfo;
     pipelineDepthStencilCreateInfo.depthTestEnable = true;
@@ -827,25 +775,15 @@ void etna::Renderer::initPipeline() {
     pipelineDepthStencilCreateInfo.depthBoundsTestEnable = false;
     pipelineDepthStencilCreateInfo.stencilTestEnable = false;
 
-    vk::PipelineMultisampleStateCreateInfo pipelineMultisampleCreateInfo(
-                vk::PipelineMultisampleStateCreateFlags(),
-                getMaxUsableSampleCount(),
-                true, 1.f, nullptr, false, false
-                );
+    vk::PipelineMultisampleStateCreateInfo pipelineMultisampleCreateInfo({}, getMaxUsableSampleCount(), true, 1.f, nullptr, false, false);
 
     std::array shaderStages = {
-        vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
-        vk::ShaderStageFlagBits::eVertex, *vertexShader, "main", nullptr
-        ),
-        vk::PipelineShaderStageCreateInfo(vk::PipelineShaderStageCreateFlags(),
-        vk::ShaderStageFlagBits::eFragment, *fragmentShader, "main", nullptr
-        )
+        vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eVertex, *vertexShader, "main", nullptr),
+        vk::PipelineShaderStageCreateInfo({}, vk::ShaderStageFlagBits::eFragment, *fragmentShader, "main", nullptr)
     };
 
     vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo(
-                vk::PipelineCreateFlags(),
-                shaderStages.size(), shaderStages.data(),
-                &pipelineVertexInputStateCreateInfo,
+                {}, shaderStages, &pipelineVertexInputStateCreateInfo,
                 &pipelineInputAssemblyStateCreateInfo,
                 nullptr, // tesselation state
                 &pipelineViewportStateCreateInfo,
@@ -941,7 +879,6 @@ void etna::Renderer::buildGui() {
 
     vmaCalculateStats(allocator.get(), &vmaStats);
     ImGui::Text("%ldMb of GPU memory used", vmaStats.total.usedBytes / 1024 / 1024);
-
     ImGui::End();
 
     ImGui::Render();
@@ -961,13 +898,11 @@ void etna::Renderer::submitCommandBuffer(int index) {
     vk::UniqueFence drawFence = device->createFenceUnique(fenceCreateInfo);
 
     vk::PipelineStageFlags pipelineStageFlags(vk::PipelineStageFlagBits::eColorAttachmentOutput);
-    vk::SubmitInfo submitInfo(
-                0, nullptr, &pipelineStageFlags, 1, &*commandBuffers[index], 0, nullptr
-                );
+    vk::SubmitInfo submitInfo( 0, nullptr, &pipelineStageFlags, 1, &*commandBuffers[index], 0, nullptr);
     queue.submit({submitInfo}, *drawFence);
     vk::Result res;
     do {
-        res = device->waitForFences(1, &*drawFence, true, 1000000000);
+        res = device->waitForFences({*drawFence}, true, std::numeric_limits<uint64_t>::max());
     } while (res == vk::Result::eTimeout);
 }
 
