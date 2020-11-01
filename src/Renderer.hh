@@ -9,85 +9,12 @@
 #include <GLFW/glfw3.h>
 
 #include "Vertex.hh"
+#include "VmaAllocationOwnership.hh"
+#include "Scene.hh"
+
 #include <filesystem>
 
 namespace etna {
-
-    struct UniformBuffer {
-        glm::mat4 mvp;
-    };
-
-    class UniqueVmaAllocation {
-    public:
-        UniqueVmaAllocation() = default;
-        UniqueVmaAllocation(VmaAllocator allocator, VmaAllocation allocation)
-            : _allocator(allocator),
-              _allocation(allocation)
-        {}
-        UniqueVmaAllocation(const UniqueVmaAllocation&) = delete;
-        UniqueVmaAllocation(UniqueVmaAllocation&& mv)
-            : _allocator(mv._allocator) {
-            std::swap(_allocation, mv._allocation);
-        }
-
-        ~UniqueVmaAllocation() {
-            clear();
-        }
-
-        operator const VmaAllocation& () {
-            return _allocation;
-        }
-
-        void reset(VmaAllocator allocator, VmaAllocation allocation) {
-            clear();
-            _allocator = allocator;
-            _allocation = allocation;
-        }
-    private:
-        void clear() {
-            if (_allocator && _allocation) {
-                vmaFreeMemory(_allocator, _allocation);
-                _allocator = nullptr;
-                _allocation = nullptr;
-            }
-        }
-
-        VmaAllocator _allocator = nullptr;
-        VmaAllocation _allocation = nullptr;
-    };
-
-    struct SceneObject {
-        std::string name;
-        glm::vec3 position = {0,0,0};
-        glm::vec3 rotation = {0,0,0};
-        glm::vec3 scale =    {1,1,1};
-
-        bool visible = false;
-        // It is wrong to establish ownership of vertex buffers and textures at object level
-        // So this is all quite temporary but it does provide some convenience while
-        // other essential structural aspects are defined
-        vk::UniqueBuffer vertexBuffer = {};
-        UniqueVmaAllocation bufferAllocation = {};
-
-        vk::UniqueImage textureImage = {};
-        vk::UniqueImageView textureView {};
-        UniqueVmaAllocation textureAllocation = {};
-        vk::DescriptorSet samplerDescriptor = {};
-
-        int bufferStart = 0;
-        int numVerts = 0;
-
-        uint32_t uniformBufferOffset = 0;
-    };
-
-    struct Camera {
-        float fov = 110.f;
-        float zNear = 1.f;
-
-        glm::vec4 pos = glm::vec4(0, 0, -15, 1);
-        glm::vec3 rotation = {};
-    };
-
 
     struct ImageData {
         vk::UniqueImage image = {};
@@ -125,7 +52,7 @@ namespace etna {
         void initSampler();
 
         void loadObj(const std::filesystem::path& path);
-        void loadTexture(const std::filesystem::path& path, SceneObject& obj);
+        void loadTexture(const std::filesystem::path& path, SceneObjectRendererData& obj);
 
         void spawnCube();
 
@@ -170,7 +97,7 @@ namespace etna {
         vk::DispatchLoaderDynamic dldi;
         vk::UniqueHandle<vk::DebugUtilsMessengerEXT, vk::DispatchLoaderDynamic> debugUtilsMessenger;
 
-        struct allocatorDeleter {
+        struct AllocatorDeleter {
             void operator()(VmaAllocator alloc) {
                 vmaDestroyAllocator(alloc);
             }
@@ -179,7 +106,7 @@ namespace etna {
         vk::PhysicalDevice gpu;
 
         vk::UniqueDevice device;
-        std::unique_ptr<VmaAllocator_T, allocatorDeleter> allocator;
+        std::unique_ptr<VmaAllocator_T, AllocatorDeleter> allocator;
 
         vk::DispatchLoaderDynamic dldid;
 
@@ -226,12 +153,9 @@ namespace etna {
 
         vk::UniqueRenderPass renderPass;
 
-        vk::VertexInputBindingDescription viBindings;
-        std::vector<vk::VertexInputAttributeDescription> viAttribs;
-
         vk::UniqueSampler textureSampler;
 
-        std::vector<SceneObject> sceneObjects;
+        std::vector<SceneObjectRendererData> sceneObjects;
         Camera camera;
 
         GLFWwindow *_window = nullptr;

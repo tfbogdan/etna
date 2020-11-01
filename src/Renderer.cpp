@@ -23,6 +23,10 @@
 
 #include <tinyobjloader/tiny_obj_loader.h>
 
+#include "Pipeline.hh"
+#include "UserInterface.hh"
+#include <Scene.metadata.h>
+
 constexpr std::array instanceExtensions = {
     VK_KHR_SURFACE_EXTENSION_NAME,
     VK_EXT_DEBUG_UTILS_EXTENSION_NAME
@@ -569,13 +573,6 @@ constexpr std::array faceColors {
 
 void etna::Renderer::initScene() {
     auto vikingRoomPath = getenv("VIKING_ROOM_OBJ");
-    viBindings.binding = 0;
-    viBindings.inputRate = vk::VertexInputRate::eVertex;
-    viBindings.stride = sizeof(TexturedVertex);
-
-    viAttribs.clear();
-    viAttribs.emplace_back(0, 0, vk::Format::eR32G32B32Sfloat, offsetof(struct TexturedVertex, displacement));
-    viAttribs.emplace_back(1, 0, vk::Format::eR32G32Sfloat, offsetof(struct TexturedVertex, uv));
 
     if (vikingRoomPath) {
         loadObj(vikingRoomPath);
@@ -644,7 +641,7 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
     memcpy(vMem, vertices.data(), sizeof(TexturedVertex) * vertices.size());
     vmaUnmapMemory(allocator.get(), stagingAlloc);
 
-    SceneObject meshObj;
+    SceneObjectRendererData meshObj;
     meshObj.vertexBuffer = vk::UniqueBuffer(stagingBuffer, *device);
 
     meshObj.bufferAllocation.reset(allocator.get(), stagingAlloc);
@@ -660,7 +657,7 @@ void etna::Renderer::loadObj(const std::filesystem::path &path) {
     sceneObjects.emplace_back(std::move(meshObj));
 }
 
-void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneObject &obj) {
+void etna::Renderer::loadTexture(const std::filesystem::path &path, etna::SceneObjectRendererData &obj) {
     assert(std::filesystem::exists(path));
     int w, h, channels;
     stbi_uc* pixels = stbi_load(path.string().c_str(), &w, &h, &channels, STBI_rgb_alpha);
@@ -742,15 +739,12 @@ vk::SampleCountFlagBits etna::Renderer::getMaxUsableSampleCount() {
 }
 
 void etna::Renderer::initPipeline() {
-    std::array dynamicStates = {
-        vk::DynamicState::eViewport,
-        vk::DynamicState::eScissor
-    };
+    std::array dynamicStates = { vk::DynamicState::eViewport, vk::DynamicState::eScissor};
     vk::PipelineDynamicStateCreateInfo dynamicStateInfo;
     dynamicStateInfo.dynamicStateCount = dynamicStates.size();
     dynamicStateInfo.pDynamicStates = dynamicStates.data();
-
-    vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo({}, viBindings, viAttribs);
+    using iag = VertexInputAttributeGenerator<TexturedVertex>;
+    vk::PipelineVertexInputStateCreateInfo pipelineVertexInputStateCreateInfo({}, iag::vertexInputBindingDescription, iag::vertexInputAttributes);
     vk::PipelineInputAssemblyStateCreateInfo pipelineInputAssemblyStateCreateInfo({}, vk::PrimitiveTopology::eTriangleList);
 
     vk::PipelineRasterizationStateCreateInfo pipelineRasterizationStateCreateInfo({}, false, false, vk::PolygonMode::eFill,
@@ -844,28 +838,30 @@ void etna::Renderer::buildGui() {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
-    ImGui::Begin("Scene");
-    for (int ix = 0; ix < std::ssize(sceneObjects); ++ix) {
-        auto& obj = sceneObjects[ix];
-        uint32_t flags = ImGuiTreeNodeFlags_Leaf;
-        if (selectedSceneNode == ix) {
-            flags |= ImGuiTreeNodeFlags_Selected;
+    if (ImGui::Begin("Scene")) {
+        for (int ix = 0; ix < std::ssize(sceneObjects); ++ix) {
+            auto& obj = sceneObjects[ix];
+            uint32_t flags = ImGuiTreeNodeFlags_Leaf;
+            if (selectedSceneNode == ix) {
+                flags |= ImGuiTreeNodeFlags_Selected;
+            }
+
+            ImGui::TreeNodeEx(obj.name.c_str(), flags);
+            if (ImGui::IsItemClicked()) {
+                selectedSceneNode = ix;
+            }
+
+            ImGui::TreePop();
         }
 
-        ImGui::TreeNodeEx(obj.name.c_str(), flags);
-        if (ImGui::IsItemClicked()) {
-            selectedSceneNode = ix;
+        if (selectedSceneNode >= 0) {
+            auto& obj = sceneObjects[selectedSceneNode];
+            ImGui_Build(obj);
+//            ImGui::DragFloat3("Position", &obj.position[0], .1f);
+//            ImGui::DragFloat3("Rotation", &obj.rotation[0], .1f, -360.f, 360.0f);
+//            ImGui::DragFloat3("Scale",    &obj.scale[0], .1f, 1.f, .0f);
+//            ImGui::Checkbox("Visible", &obj.visible);
         }
-
-        ImGui::TreePop();
-    }
-
-    if (selectedSceneNode >= 0) {
-        auto& obj = sceneObjects[selectedSceneNode];
-        ImGui::DragFloat3("Position", &obj.position[0], .1f);
-        ImGui::DragFloat3("Rotation", &obj.rotation[0], .1f, -360.f, 360.0f);
-        ImGui::DragFloat3("Scale",    &obj.scale[0], .1f, 1.f, .0f);
-        ImGui::Checkbox("Visible", &obj.visible);
     }
 
     ImGui::End();

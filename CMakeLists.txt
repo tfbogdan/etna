@@ -12,8 +12,8 @@ endif()
 
 
 find_package(Vulkan REQUIRED)
-find_program(GLSLANG_VALIDATOR NAMES glslangValidator
-                         HINTS $ENV{VULKAN_SDK})
+find_package(rosewood REQUIRED CONFIG)
+find_program(GLSLANG_VALIDATOR NAMES glslangValidator HINTS $ENV{VULKAN_SDK})
 
 if(NOT GLSLANG_VALIDATOR)
      message(SEND_ERROR "Couldn't find glslangValidator.")
@@ -48,24 +48,27 @@ compile_shader(shaders/fragment_shader.frag)
 target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_LEFT_HANDED)
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_20)
 
-#target_compile_options(${PROJECT_NAME} PRIVATE
-# $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
+target_compile_options(${PROJECT_NAME} PRIVATE
+ $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
 # $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall -pedantic -Werror>
-#)
+ $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fconcepts-diagnostics-depth=4>
+)
 
-target_link_libraries(${PROJECT_NAME} 
-    PRIVATE 
-    Vulkan::Vulkan 
-    fmt::fmt 
-    spdlog::spdlog 
+target_link_libraries(${PROJECT_NAME}
+    PRIVATE
+    Vulkan::Vulkan
+    fmt::fmt
+    spdlog::spdlog
     glm::glm
     glfw
+    rwruntime
 )
 
 if(UNIX AND NOT APPLE)
-    target_link_libraries(${PROJECT_NAME} 
-        PRIVATE 
-        PkgConfig::libinput 
-        PkgConfig::libudev 
+    target_link_libraries(${PROJECT_NAME}
+        PRIVATE
+        PkgConfig::libinput
+        PkgConfig::libudev
     )
 endif()
+

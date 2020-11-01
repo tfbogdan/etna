@@ -3,23 +3,27 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include <concepts>
+
 namespace etna {
 
     template <typename T>
-    concept Vec3Concept = std::is_same_v<glm::vec3, T>;
-
-    template <typename T>
     concept VertexWithDisplacementConcept = requires(T& a) {
-        { a.displacement } -> Vec3Concept;
+        { a.displacement } -> std::same_as<glm::vec3&>;
     };
 
     template <typename T>
     concept VertexWithNormalConcept = requires(T& a) {
-        { a.normal } -> Vec3Concept;
+        { a.normal } -> std::same_as<glm::vec3&>;
     };
 
     template <typename T>
-    concept Vertex = VertexWithDisplacementConcept<T> || VertexWithNormalConcept<T>;
+    concept VertexWithUVConcept = requires(T& a) {
+        { a.uv } -> std::same_as<glm::vec2&>;
+    };
+
+    template <typename T>
+    concept Vertex = VertexWithDisplacementConcept<T> || VertexWithNormalConcept<T> || VertexWithUVConcept<T>;
 
     struct ColoredVertex {
         glm::vec3 displacement;

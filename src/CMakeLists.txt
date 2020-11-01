@@ -7,4 +7,10 @@ target_sources(etna PRIVATE
     Pipeline.cc
     GeometryGenerators.hh
     Vertex.hh
-    )
+    Scene.hh
+    UserInterface.hh
+    VmaAllocationOwnership.hh
+)
+
+rosewood_reflect_on_headers(etna etnaSrcReflection Vertex.hh)
+rosewood_reflect_on_headers(etna etnaSrcReflection Scene.hh)
