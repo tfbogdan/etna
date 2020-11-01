@@ -152,10 +152,9 @@ namespace etna {
             buffers.front()->begin(buffBeginInfo);
             func(*buffers.front());
             buffers.front()->end();
-
-            vk::SubmitInfo submitInfo;
-            submitInfo.setCommandBuffers(std::array{*buffers.front()});
-            queue.submit(std::array{submitInfo}, vk::Fence());
+            auto rawBuffers = vk::uniqueToRaw(buffers);
+            std::array submitInfos { vk::SubmitInfo({}, {}, rawBuffers, {})};
+            queue.submit(submitInfos, vk::Fence());
             queue.waitIdle();
         }
 

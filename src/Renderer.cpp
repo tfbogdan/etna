@@ -119,7 +119,11 @@ void etna::Renderer::createInstance() {
     auto glfwRequiredExtensions = glfwGetRequiredInstanceExtensions(&numExts);
     requiredExtensions.insert(requiredExtensions.end(), glfwRequiredExtensions, glfwRequiredExtensions + numExts);
 
+#if _DEBUG
     vk::InstanceCreateInfo instanceCreateInfo({}, &appInfo, validationLayers, requiredExtensions);
+#else
+    vk::InstanceCreateInfo instanceCreateInfo({}, &appInfo, {}, requiredExtensions);
+#endif
 
     auto layers = vk::enumerateInstanceLayerProperties();
     instance = vk::createInstanceUnique(instanceCreateInfo);
@@ -202,14 +206,19 @@ void etna::Renderer::initDevice() {
     // TDO: for simplification, we assume that we only have 1 queue family that
     // supports all operations but that's clearly not good enough for real world usage
     assert (supportsPresent[queueFamily]);
-    std::array queue_priorities { .0f };
-    vk::DeviceQueueCreateInfo queueInfo( {}, queueFamily, queue_priorities);
+    std::array queuePriorities { .0f };
+    std::array queueCreateInfos {
+        vk::DeviceQueueCreateInfo({}, queueFamily, queuePriorities)
+    };
 
     vk::PhysicalDeviceFeatures deviceFeatures = {};
     deviceFeatures.sampleRateShading = true;
     deviceFeatures.samplerAnisotropy = true;
-
-    vk::DeviceCreateInfo deviceInfo({}, std::array{queueInfo}, validationLayers, deviceExtensions, &deviceFeatures);
+#if _DEBUG
+    vk::DeviceCreateInfo deviceInfo({}, queueCreateInfos, validationLayers, deviceExtensions, &deviceFeatures);
+#else
+    vk::DeviceCreateInfo deviceInfo({}, queueCreateInfos, {}, deviceExtensions, &deviceFeatures);
+#endif
     vk::PhysicalDeviceDriverProperties driverProps;
     vk::PhysicalDeviceProperties2 props2;
     props2.pNext = &driverProps;
@@ -415,8 +424,8 @@ void etna::Renderer::initPipelineLayout() {
     };
     vk::DescriptorSetLayoutCreateInfo sharedDescriptorLayoutInfo({}, sharedLayoutBindings);
     descSetLayout = device->createDescriptorSetLayoutUnique(sharedDescriptorLayoutInfo);
-
-    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, std::array{ *descSetLayout });
+    std::array descSetLayouts {*descSetLayout};
+    vk::PipelineLayoutCreateInfo pipelineLayoutCreateInfo({}, descSetLayouts);
     pipelineLayout = device->createPipelineLayoutUnique(pipelineLayoutCreateInfo);
 }
 
